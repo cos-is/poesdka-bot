@@ -4,6 +4,7 @@ import { addNotifyJob } from '../../queue/notifyQueue.mjs'
 import { formatDate, formatTime } from '../../utils/formatDate.mjs'
 import { formatPhone } from '../../utils/formatPhone.mjs'
 import { showPassengerMenu } from './common.mjs'
+import { initYooCheckout, createCommissionPayment } from './payments.mjs'
 
 export function passengerLogic(knex) {
   return async (ctx, next) => {
@@ -359,7 +360,7 @@ export function passengerLogic(knex) {
           const totalPages = Math.ceil(bookings.length / pageSize);
           const showBookings = bookings.slice(page * pageSize, (page + 1) * pageSize);
           const buttons = showBookings.map((b, i) => [{
-            text: `${formatDate(b.departure_date)} ${formatTime(b.departure_time)} | ${formatTime(b.departure_city)} → ${b.arrival_city}`,
+            text: `${formatDate(b.departure_date)} ${formatTime(b.departure_time)} | ${b.departure_city} → ${b.arrival_city}`,
             callback_data: `show_booking_${i}`
           }]);
           if (page > 0) buttons.push([{ text: '◀️ Назад', callback_data: `booking_page_${page - 1}` }]);
@@ -582,14 +583,21 @@ export function passengerLogic(knex) {
         }
         // Если пользователь прислал контакт
         if (ctx?.message?.contact) {
-          ctx.session.user.phone = ctx.message.contact.phone_number;
-          await knex('users').where({ telegram_id: ctx.from.id }).update({ phone: ctx.session.user.phone });
+          let raw = ctx.message.contact.phone_number.trim();
+          raw = raw.replace(/[^+\d]/g,'');
+          if (raw.startsWith('8')) raw = '+7' + raw.slice(1);
+          if (/^7\d{10}$/.test(raw)) raw = '+' + raw; // 7XXXXXXXXXX -> +7XXXXXXXXXX
+          ctx.session.user.phone = raw;
+          await knex('users').where({ telegram_id: ctx.from.id }).update({ phone: raw });
           await ctx.reply('Телефон сохранён.', { reply_markup: { remove_keyboard: true } });
         }
         // Если пользователь вводит телефон вручную
         if (ctx.session.state === 'awaiting_phone_input' && ctx.message && ctx.message.text) {
-          const phone = ctx.message.text.trim();
-          if (!/^\+7\d{10,14}$/.test(phone)) {
+          let phone = ctx.message.text.trim();
+          phone = phone.replace(/[^+\d]/g,'');
+          if (phone.startsWith('8')) phone = '+7' + phone.slice(1);
+          if (/^7\d{10}$/.test(phone)) phone = '+' + phone;
+          if (!/^\+7\d{10}$/ .test(phone)) {
             await ctx.reply('Пожалуйста, введите корректный номер в формате +79991234567.');
             return;
           }
@@ -602,57 +610,68 @@ export function passengerLogic(knex) {
         try {
           const tripInstanceId = ctx.session.selected_trip.id;
           const seats = ctx.session.seats;
-          // Получаем внутренний users.id по telegram_id
           const user = await knex('users').where({ telegram_id: ctx.from.id }).first();
           if (!user) throw new Error('Пользователь не найден');
           const userId = user.id;
-          // Проверка на существующую бронь
+          // Проверка на существующую активную или ожидающую оплату бронь
           const existingBooking = await knex('bookings')
             .where({ trip_instance_id: tripInstanceId, user_id: userId })
-            .andWhere('status', 'active')
+            .whereIn('status', ['active','pending'])
             .first();
           if (existingBooking) {
-            await ctx.reply('Вы уже забронировали эту поездку. Если хотите изменить количество мест, отмените текущую бронь и создайте новую.');
+            await ctx.reply('У вас уже есть бронирование этой поездки (активное или в ожидании оплаты).');
             return;
           }
-          const bookingId = await knex.transaction(async trx => {
-            // Проверка доступных мест
-            const trip = await trx('trip_instances').where({ id: tripInstanceId }).first();
-            if (!trip || trip.available_seats < seats) throw new Error('Not enough seats');
-            // Обновление мест
-            await trx('trip_instances').where({ id: tripInstanceId }).decrement('available_seats', seats);
-            // Создание брони
-            const [bookingId] = await trx('bookings').insert({ trip_instance_id: tripInstanceId, user_id: userId, seats });
-            return bookingId;
-          })
-          console.log('Booking created:', bookingId);
-          // Уведомление водителю о новой брони через очередь
-          const trip = await knex('trips')
-            .join('trip_instances', 'trips.id', 'trip_instances.trip_id')
-            .where('trip_instances.id', ctx.session.selected_trip.id)
-            .join("cities as dep", "trips.departure_city_id", "dep.id")
-            .join("cities as arr", "trips.arrival_city_id", "arr.id")
-            .select('trips.driver_id', 'dep.name as departure_city', 'arr.name as arrival_city')
-            .join('users', 'trips.driver_id', 'users.id')
-            .select('users.telegram_id as driver_telegram_id', 'users.name as driver_name')
-            .first();
-            console.log(trip)
-          if (trip) {
-            const tripDetails = ctx.session.selected_trip_details || ctx.session.selected_trip;
-            const dateStr = tripDetails?.departure_date ? formatDate(tripDetails.departure_date) : '';
-            const timeStr = tripDetails?.departure_time ? formatTime(tripDetails.departure_time) : '';
-            await addNotifyJob(
-              'booking_new',
-              trip.driver_telegram_id,
-              `Новая бронь: пассажир забронировал ${ctx.session.seats} мест(о) на поездку ${trip.departure_city} → ${trip.arrival_city} (${dateStr} ${timeStr}).`,
-              bookingId
-            );
+          // Проверка мест (пока без уменьшения, делаем только при успехе оплаты)
+          const tripInstance = await knex('trip_instances').where({ id: tripInstanceId }).first();
+          if (!tripInstance || tripInstance.available_seats < seats) {
+            await ctx.reply('Недостаточно мест. Обновите список поездок.');
+            return;
           }
-          await ctx.reply('Бронирование отправлено! Ожидайте подтверждения.');
-          await showPassengerMenu(ctx)
+          // Создаём pending booking
+          const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 минут на оплату
+          const [bookingId] = await knex('bookings').insert({ trip_instance_id: tripInstanceId, user_id: userId, seats, status: 'pending', expires_at: expiresAt });
+          // Фиксированная комиссия: 50₽ за место (можно задать COMMISSION_PER_SEAT)
+          const COMMISSION_PER_SEAT = parseInt(process.env.COMMISSION_PER_SEAT || '50', 10);
+          const commissionAmount = COMMISSION_PER_SEAT * seats;
+          const yoo = initYooCheckout();
+          let paymentUrl;
+          if (yoo) {
+            try {
+              const idempotenceKey = `booking-${bookingId}-${Date.now()}`;
+              const payment = await createCommissionPayment(yoo, {
+                amount: commissionAmount,
+                description: `Комиссия за бронирование #${bookingId}`,
+                metadata: { booking_id: bookingId, user_id: userId, trip_instance_id: tripInstanceId, return_url: 'https://t.me/' + ctx.botInfo?.username },
+                idempotenceKey
+              });
+              paymentUrl = payment?.confirmation?.confirmation_url;
+              // Сохраняем payment
+              const [paymentId] = await knex('payments').insert({ provider: 'yookassa', provider_payment_id: payment.id, amount: commissionAmount, currency: 'RUB', status: payment.status, description: `Комиссия за бронирование #${bookingId}`, idempotence_key: idempotenceKey });
+              await knex('bookings').where({ id: bookingId }).update({ payment_id: paymentId });
+            } catch (err) {
+              console.error('Ошибка создания платежа', err);
+            }
+          }
+          if (paymentUrl) {
+            const minutesLeft = 15; // фиксировано пока
+            await ctx.reply(
+              `Бронирование #${bookingId} создано и ожидает оплаты комиссии.
+Места: ${seats}
+Комиссия: ${commissionAmount}₽ (по ${COMMISSION_PER_SEAT}₽ за место)`,
+              {
+                reply_markup: {
+                  inline_keyboard: [[{ text: 'Оплатить', url: paymentUrl }]]
+                }
+              }
+            );
+          } else {
+            await ctx.reply('Бронирование создано. Оплата временно недоступна, свяжитесь с поддержкой.');
+          }
+          await showPassengerMenu(ctx);
         } catch (e) {
-          console.log(e)
-          await ctx.reply('Ошибка бронирования. Попробуйте позже или выберите другую поездку.');
+          console.log(e);
+          await ctx.reply('Ошибка создания бронирования. Попробуйте позже.');
         }
         ctx.session.state = null;
         ctx.session.trips = null;

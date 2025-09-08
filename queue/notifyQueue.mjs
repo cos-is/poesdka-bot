@@ -14,8 +14,8 @@ export const notifyQueue = new Queue('notify', { connection });
 export function startNotifyWorker(knex) {
   new Worker('notify', async job => {
     console.log('new job', job)
-    const { type, driverId, message, bookingId } = job.data;
-    if (!driverId || !message) return;
+  const { type, driverId, message, bookingId } = job.data;
+  if (!driverId || !message) return;
     const botModule = await import('../index.mjs');
     const bot = botModule.poezdkaBot || botModule.bot;
     try {
@@ -32,6 +32,8 @@ export function startNotifyWorker(knex) {
             ]
           }
         });
+      } else if (['booking_paid','booking_active','booking_failed','payment_cancelled'].includes(type)) {
+        await bot.telegram.sendMessage(driverId, message);
       } else {
         await bot.telegram.sendMessage(driverId, message);
       }

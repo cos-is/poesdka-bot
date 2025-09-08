@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon ./index.mjs",
     "serve": "node ./index.mjs",
-    "migrate": "knex migrate:latest"
+    "migrate": "knex migrate:latest",
+    "cancel-expired": "node ./scripts/cancelExpiredBookings.mjs"
   },
   "repository": {
     "type": "git",
@@ -19,6 +20,7 @@
   },
   "homepage": "https://github.com/cos-is/poster-bot#readme",
   "dependencies": {
+    "@a2seven/yoo-checkout": "^1.1.4",
     "axios": "^1.6.8",
     "body-parser": "^1.20.2",
     "bullmq": "^5.58.0",
