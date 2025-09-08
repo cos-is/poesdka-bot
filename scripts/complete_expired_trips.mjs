@@ -1,10 +1,7 @@
 // Скрипт для завершения просроченных активных поездок
 // Запускать через: node scripts/complete_expired_trips.mjs
-import knexConfig from '../knexfile.mjs';
-import knex from 'knex';
 import { getDate } from '../utils/formatDate.mjs'
-
-const db = knex(knexConfig);
+import db from '../db/db.mjs'
 
 function pad(num) {
   return num.toString().padStart(2, '0');
