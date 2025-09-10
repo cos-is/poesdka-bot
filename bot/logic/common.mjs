@@ -58,6 +58,12 @@ export function commonLogic(knex) {
       const dbUser = await knex('users').where({ telegram_id: ctx.from.id }).first();
       phone = dbUser?.phone || '';
     }
+    if (user) {
+      ctx.bot.setMyCommands([
+        { command: '/start', description: 'Начать' },
+        { command: '/support', description: 'Поддержка' }
+      ])
+    }
     await ctx.reply(`Ваш текущий номер телефона: ${phone ? formatPhone(phone) : 'не указан'}`);
     await ctx.reply('Вы можете ввести новый номер вручную или отправить контакт:', {
       reply_markup: {
@@ -180,6 +186,14 @@ export function commonLogic(knex) {
         if (ctx.message && ctx.message.text === '/start') {
           ctx.session = {};
           if (!session.user) {
+            await ctx.reply(`👋 Приветствуем вас в PoezdkaKrasBot!
+Здесь вы можете найти попутчиков или предложить поездку 🚗
+По Краснодарскому Краю.
+
+📌 Водителям — удобно публиковать маршруты
+📌 Пассажирам — легко находить поездки и бронировать места
+
+<a href="https://poezdkabot.ru/offer.html">Оферта по оказанию услуг</a>`, { parse_mode: 'HTML' })
             await showRoleMenu(ctx);
           } else if (session.user?.role === 'driver') {
             await showDriverMenu(ctx);
@@ -188,7 +202,11 @@ export function commonLogic(knex) {
           }
           return true;
         }
-    
+
+        if (ctx.message && ctx.message.text === '/support') {
+          await ctx.reply(`Если у вас возникли вопросы, проблемы или предложения, вы можете обратиться в нашу службу поддержки: @PoezdkaSupport`)
+          return true
+        }
         // Выбор роли
         if (ctx.session?.state === 'choose_role' && ctx.message && (ctx.message.text === 'Водитель' || ctx.message.text === 'Пассажир')) {
           const role = ctx.message.text === 'Водитель' ? 'driver' : 'passenger';

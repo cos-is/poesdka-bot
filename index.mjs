@@ -142,6 +142,10 @@ poezdkaBot.use(session())
 
 
 // Подключаем логику пассажира и водителя
+poezdkaBot.telegram.setMyCommands([
+  { command: '/start', description: 'Начать' },
+  { command: '/support', description: 'Поддержка' }
+])
 poezdkaBot.use(commonLogic(db))
 poezdkaBot.use(handleCalendar(poezdkaBot))
 poezdkaBot.use(driverLogic(db));
