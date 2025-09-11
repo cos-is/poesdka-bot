@@ -18,6 +18,13 @@ function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60000);
 }
 
+function getDateTimeString(date) {
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  return `${year}-${month}-${day}`;
+}
+
 async function main() {
   const now = getDate()
   // Получаем все активные поездки с duration и временем отправления
@@ -30,7 +37,8 @@ async function main() {
     if (!trip.departure_date || !trip.departure_time || !trip.duration) continue;
     // Формируем дату-время отправления
     const [h, m] = trip.departure_time.split(':').map(Number);
-    const depDate = new Date(trip.departure_date + 'T' + pad(h) + ':' + pad(m) + ':00');
+    const departureDate = getDateTimeString(trip.departure_date)
+    const depDate = new Date(departureDate + 'T' + pad(h) + ':' + pad(m) + ':00');
     const mins = parseDuration(trip.duration);
     const endDate = addMinutes(depDate, mins);
     if (now > endDate) {
