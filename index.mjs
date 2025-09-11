@@ -34,6 +34,10 @@ const port = 3015
 
 // Инициализация YooKassa
 const yoo = initYooCheckout()
+
+app.get('/yookassa/webhook', async (req, res) => {
+  res.status(200).send('ok')
+})
 // Webhook для YooKassa
 app.post('/yookassa/webhook', async (req, res) => {
   console.log(req)
@@ -180,6 +184,9 @@ await poezdkaAdminBot.telegram.setWebhook(`${publicUrl}${poezdkaAdminBotWebhookP
 
 poezdkaBot.launch()
 poezdkaAdminBot.launch()
+app.listen(port, () => {
+  console.log(`Server service listening on port ${port}`)
+})
 async function onShutdown () {
   await poezdkaBot.telegram.deleteWebhook()
   await poezdkaAdminBot.telegram.deleteWebhook()
