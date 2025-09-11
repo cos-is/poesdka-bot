@@ -1468,51 +1468,46 @@ export async function handleDriverTrips(ctx, next, knex) {
   }
     const data = callbackQuery.data;
     if (data === "show_passengers") {
-      // Показать список пассажиров с контактами для выбранной поездки
+      // Показать список пассажиров только для выбранного инстанса
       const trip = ctx.session.selected_trip;
-      if (!trip) {
+      if (!trip || !trip.instance_id) {
         await ctx.reply("Поездка не выбрана.");
         return true;
       }
-      // Получаем все инстансы этой поездки
-      const instances = await knex("trip_instances")
-        .where("trip_id", trip.id)
-        .select("id", "departure_date", "departure_time");
-      if (!instances.length) {
-        await ctx.reply("Нет бронирований для этой поездки.");
+      const bookings = await knex("bookings")
+        .join("users", "bookings.user_id", "users.id")
+        .where("bookings.trip_instance_id", trip.instance_id)
+        .whereIn("bookings.status", ["active", "awaiting_confirmation"]) // показываем активных и ожидающих подтверждения
+        .select(
+          "bookings.id as booking_id",
+          "users.name",
+          "users.phone",
+          "bookings.seats",
+          "bookings.confirmed"
+        );
+      let msg = `Пассажиры по поездке: ${formatDate(trip.departure_date)} ${formatTime(trip.departure_time)}`;
+      if (!bookings.length) {
+        msg += "\nНет активных бронирований.";
+        await ctx.reply(msg);
         return true;
       }
-      let msg = "Пассажиры по этой поездке:";
-      let found = false;
-      for (const inst of instances) {
-        // Для каждого инстанса получаем брони
-        const bookings = await knex("bookings")
-          .join("users", "bookings.user_id", "users.id")
-          .where("bookings.trip_instance_id", inst.id)
-          .andWhere("bookings.status", "active")
-          .select("bookings.id as booking_id", "users.name", "users.phone", "bookings.seats", "bookings.confirmed");
-        if (bookings.length) {
-          found = true;
-          msg += `\n\nДата: ${formatDate(inst.departure_date)} ${formatTime(inst.departure_time)}`;
-          for (const b of bookings) {
-            msg += `\nПассажир: ${b.name}\nТелефон: ${formatPhone(b.phone)}\nМест: ${b.seats}`;
-            if (!b.confirmed) {
-              await ctx.reply(`Бронирование пассажира ${b.name} (${formatPhone(b.phone)}), мест: ${b.seats}`, {
-                reply_markup: {
-                  inline_keyboard: [
-                    [
-                      { text: 'Подтвердить', callback_data: `driver_confirm_booking_${b.booking_id}` },
-                      { text: 'Отклонить', callback_data: `driver_reject_booking_${b.booking_id}` }
-                    ]
+      for (const b of bookings) {
+        msg += `\n\nПассажир: ${b.name}\nТелефон: ${formatPhone(b.phone)}\nМест: ${b.seats}`;
+        if (!b.confirmed) {
+          await ctx.reply(
+            `Бронирование пассажира ${b.name} (${formatPhone(b.phone)}), мест: ${b.seats}`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    { text: 'Подтвердить', callback_data: `driver_confirm_booking_${b.booking_id}` },
+                    { text: 'Отклонить', callback_data: `driver_reject_booking_${b.booking_id}` }
                   ]
-                }
-              });
+                ]
+              }
             }
-          }
+          );
         }
-      }
-      if (!found) {
-        msg += "\nНет активных бронирований.";
       }
       await ctx.reply(msg);
       return true;
