@@ -16,23 +16,60 @@ export function startTripWorker(knex) {
   new Worker('trip', async job => {
     const { action, data } = job.data;
     if (action === 'cancel') {
-      // Отмена поездки и всех экземпляров
+      // Отмена поездки и всех её инстансов
       await knex('trips').where('id', data.tripId).update({ status: 'cancelled' });
       await knex('trip_instances').where('trip_id', data.tripId).update({ status: 'cancelled' });
-      // Уведомления пассажирам
+      // Автовозвраты для всех оплаченных броней, отмена броней и возврат мест
       const botModule = await import('../index.mjs');
       const bot = botModule.poezdkaBot || botModule.bot;
-      // Получить все активные бронирования на эту поездку
-      const bookings = await knex('bookings')
-        .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
+      const { initYooCheckout } = await import('../bot/logic/payments.mjs');
+      const { createRefund } = await import('../bot/logic/payments.mjs');
+      const yc = initYooCheckout();
+      const affectedBookings = await knex('bookings')
+        .join('trip_instances','bookings.trip_instance_id','trip_instances.id')
         .where('trip_instances.trip_id', data.tripId)
-        .andWhere('bookings.status', 'active')
-        .select('bookings.user_id', 'trip_instances.departure_date', 'trip_instances.departure_time');
-      for (const b of bookings) {
+        .whereIn('bookings.status', ['active','pending','awaiting_confirmation'])
+        .select('bookings.*','trip_instances.departure_date','trip_instances.departure_time');
+      for (const b of affectedBookings) {
+        // Вернуть места, если они были уже зарезервированы (мы резервируем при создании pending)
+        try {
+          await knex.transaction(async trx => {
+            await trx('trip_instances').where({ id: b.trip_instance_id }).increment('available_seats', b.seats);
+            await trx('bookings').where({ id: b.id }).update({ status: 'cancelled', confirmed: false });
+          });
+        } catch {/* ignore */}
+        // Если была успешная оплата — оформить возврат
+        if (b.payment_id && yc) {
+          const pay = await knex('payments').where({ id: b.payment_id }).first();
+          if (pay && pay.status === 'succeeded' && pay.provider_payment_id) {
+            try {
+              const idemp = `refund-trip-cancel-${b.id}-${Date.now()}`;
+              const refund = await createRefund(yc, {
+                providerPaymentId: pay.provider_payment_id,
+                amount: pay.amount,
+                description: `Возврат комиссии: отмена поездки, бронь #${b.id}`,
+                idempotenceKey: idemp,
+              });
+              await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
+              try {
+                await knex('refunds').insert({
+                  payment_id: b.payment_id,
+                  booking_id: b.id,
+                  provider_refund_id: refund?.id || null,
+                  amount: pay.amount,
+                  currency: pay.currency || 'RUB',
+                  status: refund?.status || 'created',
+                  raw: JSON.stringify(refund || {})
+                });
+              } catch {/* ignore */}
+            } catch (e) { /* ignore refund errors to proceed */ }
+          }
+        }
+        // Уведомление пассажиру
         try {
           await bot.telegram.sendMessage(
             b.user_id,
-            `Ваша бронь на поездку, запланированную на ${b.departure_date} ${b.departure_time}, была отменена водителем. Извините за неудобства.`
+            `Ваша бронь на поездку ${b.departure_date} ${b.departure_time} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
           );
         } catch (e) { /* ignore */ }
       }

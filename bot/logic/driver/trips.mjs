@@ -1688,9 +1688,9 @@ export async function handleDriverTrips(ctx, next, knex) {
       return true;
     }
     if (data === "cancel_trip") {
-      const { addTripJob } = await import("../../queue/tripQueue.js");
+      const { addTripJob } = await import("../../../queue/tripQueue.mjs");
       await addTripJob("cancel", {
-        tripInstanceId: ctx.session.selected_trip.instance_id,
+        tripId: ctx.session.selected_trip.trip_id,
       });
       await ctx.reply("Поездка отменена");
       ctx.session.state = null;
