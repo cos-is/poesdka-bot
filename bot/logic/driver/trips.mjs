@@ -36,23 +36,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       // Получаем бронь
       const bookingRow = await knex('bookings').where({ id: bookingId }).first();
       if (!bookingRow) { await ctx.answerCbQuery('Бронь не найдена'); return true; }
-      // Транзакционно уменьшаем места и активируем бронь
-      const ok = await knex.transaction(async trx => {
-        const affected = await trx('trip_instances')
-          .where({ id: bookingRow.trip_instance_id })
-          .andWhere('available_seats', '>=', bookingRow.seats)
-          .decrement('available_seats', bookingRow.seats);
-        if (!affected) return false;
-        await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
-        return true;
-      });
-      if (!ok) {
-        // Оповестим пассажира и водителя об ошибке
-        const p = await knex('users').where({ id: bookingRow.user_id }).first();
-        if (p) await addNotifyJob('booking_failed', p.telegram_id, 'К сожалению, мест уже недостаточно. Свяжитесь с поддержкой.');
-        await ctx.answerCbQuery('Недостаточно мест');
-        return true;
-      }
+      await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
       // Получить telegram_id пассажира и детали поездки, включая фото авто
       const booking = await knex('bookings')
         .join('users as passenger', 'bookings.user_id', 'passenger.id')
