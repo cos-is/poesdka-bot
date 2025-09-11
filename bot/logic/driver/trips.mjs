@@ -3,6 +3,7 @@ import { formatDate, formatTime, getDate } from "../../../utils/formatDate.mjs";
 import { addNotifyJob } from '../../../queue/notifyQueue.mjs';
 import { showDriverMenu } from '../common.mjs'
 import { formatPhone } from '../../../utils/formatPhone.mjs'
+import { initYooCheckout, createRefund } from '../../logic/payments.mjs'
 
 // Логика создания, редактирования и просмотра поездок
 
@@ -32,14 +33,33 @@ export async function handleDriverTrips(ctx, next, knex) {
     const data = callbackQuery.data;
     if (data.startsWith('driver_confirm_booking_')) {
       const bookingId = data.replace('driver_confirm_booking_', '');
-      await knex('bookings').where({ id: bookingId }).update({ confirmed: true });
+      // Получаем бронь
+      const bookingRow = await knex('bookings').where({ id: bookingId }).first();
+      if (!bookingRow) { await ctx.answerCbQuery('Бронь не найдена'); return true; }
+      // Транзакционно уменьшаем места и активируем бронь
+      const ok = await knex.transaction(async trx => {
+        const affected = await trx('trip_instances')
+          .where({ id: bookingRow.trip_instance_id })
+          .andWhere('available_seats', '>=', bookingRow.seats)
+          .decrement('available_seats', bookingRow.seats);
+        if (!affected) return false;
+        await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
+        return true;
+      });
+      if (!ok) {
+        // Оповестим пассажира и водителя об ошибке
+        const p = await knex('users').where({ id: bookingRow.user_id }).first();
+        if (p) await addNotifyJob('booking_failed', p.telegram_id, 'К сожалению, мест уже недостаточно. Свяжитесь с поддержкой.');
+        await ctx.answerCbQuery('Недостаточно мест');
+        return true;
+      }
       // Получить telegram_id пассажира и детали поездки, включая фото авто
       const booking = await knex('bookings')
         .join('users as passenger', 'bookings.user_id', 'passenger.id')
         .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
         .join('trips', 'trip_instances.trip_id', 'trips.id')
         .join('users as driver', 'trips.driver_id', 'driver.id')
-        .join('cars', 'trips.car_id', 'cars.id')
+        .leftJoin('cars', 'trips.car_id', 'cars.id')
         .join('cities as dep', 'trips.departure_city_id', 'dep.id')
         .join('cities as arr', 'trips.arrival_city_id', 'arr.id')
         .select(
@@ -82,12 +102,7 @@ export async function handleDriverTrips(ctx, next, knex) {
             );
           }
         } catch (e) { /* ignore */ }
-        await addNotifyJob(
-          'booking_confirmed',
-          booking.passenger_telegram_id,
-          notifyMsg
-        );
-        // Уведомление для водителя с данными пассажира
+        await addNotifyJob('booking_confirmed', booking.passenger_telegram_id, notifyMsg);
         await ctx.reply('Бронирование подтверждено.');
         const driverMsg =
           `Информация о пассажире:\n` +
@@ -102,7 +117,51 @@ export async function handleDriverTrips(ctx, next, knex) {
     }
     if (data.startsWith('driver_reject_booking_')) {
       const bookingId = data.replace('driver_reject_booking_', '');
-      await knex('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+      // Вернём места и отменим бронь
+      const b = await knex('bookings').where({ id: bookingId }).first();
+      if (b) {
+        await knex.transaction(async trx => {
+          await trx('trip_instances').where({ id: b.trip_instance_id }).increment('available_seats', b.seats);
+          await trx('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+        });
+        // Автовозврат комиссии
+        if (b.payment_id) {
+          const pay = await knex('payments').where({ id: b.payment_id }).first();
+          if (pay && pay.status === 'succeeded' && pay.provider_payment_id) {
+            const yc = initYooCheckout();
+            if (yc) {
+              try {
+                const idemp = `refund-booking-${bookingId}-${Date.now()}`;
+                const refund = await createRefund(yc, {
+                  providerPaymentId: pay.provider_payment_id,
+                  amount: pay.amount,
+                  description: `Возврат комиссии: отклонена бронь #${bookingId}`,
+                  idempotenceKey: idemp,
+                });
+                await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
+                try {
+                  await knex('refunds').insert({
+                    payment_id: b.payment_id,
+                    booking_id: bookingId,
+                    provider_refund_id: refund?.id || null,
+                    amount: pay.amount,
+                    currency: pay.currency || 'RUB',
+                    status: refund?.status || 'created',
+                    raw: JSON.stringify(refund || {})
+                  });
+                } catch {}
+                // Уведомление пассажиру о возврате комиссии
+                const passenger = await knex('users').where({ id: b.user_id }).first();
+                if (passenger?.telegram_id) {
+                  await addNotifyJob('booking_refund', passenger.telegram_id, `Возврат комиссии оформлен (${pay.amount}₽) по отменённой брони #${bookingId}. Средства вернутся в течение 1–7 дней.`);
+                }
+              } catch (e) { console.error('Ошибка возврата комиссии', e.message); }
+            }
+          }
+        }
+      } else {
+        await knex('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+      }
       // Получить telegram_id пассажира и детали поездки
       const booking = await knex('bookings')
         .join('users', 'bookings.user_id', 'users.id')
@@ -1470,8 +1529,23 @@ export async function handleDriverTrips(ctx, next, knex) {
     if (data && data.startsWith('driver_confirm_booking_')) {
       console.log('Confirming booking:', data);
       const bookingId = data.replace('driver_confirm_booking_', '');
-      await knex('bookings').where({ id: bookingId }).update({ confirmed: true });
-      // Получить telegram_id пассажира и детали поездки
+      const bookingRow = await knex('bookings').where({ id: bookingId }).first();
+      if (!bookingRow) { await ctx.answerCbQuery('Бронь не найдена'); return true; }
+      const ok = await knex.transaction(async trx => {
+        const affected = await trx('trip_instances')
+          .where({ id: bookingRow.trip_instance_id })
+          .andWhere('available_seats', '>=', bookingRow.seats)
+          .decrement('available_seats', bookingRow.seats);
+        if (!affected) return false;
+        await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
+        return true;
+      });
+      if (!ok) {
+        const p = await knex('users').where({ id: bookingRow.user_id }).first();
+        if (p) await addNotifyJob('booking_failed', p.telegram_id, 'К сожалению, мест уже недостаточно. Свяжитесь с поддержкой.');
+        await ctx.answerCbQuery('Недостаточно мест');
+        return true;
+      }
       const booking = await knex('bookings')
         .join('users', 'bookings.user_id', 'users.id')
         .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
@@ -1494,7 +1568,48 @@ export async function handleDriverTrips(ctx, next, knex) {
     }
     if (data && data.startsWith('driver_reject_booking_')) {
       const bookingId = data.replace('driver_reject_booking_', '');
-      await knex('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+      const b = await knex('bookings').where({ id: bookingId }).first();
+      if (b) {
+        await knex.transaction(async trx => {
+          await trx('trip_instances').where({ id: b.trip_instance_id }).increment('available_seats', b.seats);
+          await trx('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+        });
+        if (b.payment_id) {
+          const pay = await knex('payments').where({ id: b.payment_id }).first();
+          if (pay && pay.status === 'succeeded' && pay.provider_payment_id) {
+            const yc = initYooCheckout();
+            if (yc) {
+              try {
+                const idemp = `refund-booking-${bookingId}-${Date.now()}`;
+                const refund = await createRefund(yc, {
+                  providerPaymentId: pay.provider_payment_id,
+                  amount: pay.amount,
+                  description: `Возврат комиссии: отклонена бронь #${bookingId}`,
+                  idempotenceKey: idemp,
+                });
+                await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
+                try {
+                  await knex('refunds').insert({
+                    payment_id: b.payment_id,
+                    booking_id: bookingId,
+                    provider_refund_id: refund?.id || null,
+                    amount: pay.amount,
+                    currency: pay.currency || 'RUB',
+                    status: refund?.status || 'created',
+                    raw: JSON.stringify(refund || {})
+                  });
+                } catch {}
+                const passenger = await knex('users').where({ id: b.user_id }).first();
+                if (passenger?.telegram_id) {
+                  await addNotifyJob('booking_refund', passenger.telegram_id, `Возврат комиссии оформлен (${pay.amount}₽) по отменённой брони #${bookingId}. Средства вернутся в течение 1–7 дней.`);
+                }
+              } catch (e) { console.error('Ошибка возврата комиссии', e.message); }
+            }
+          }
+        }
+      } else {
+        await knex('bookings').where({ id: bookingId }).update({ status: 'cancelled', confirmed: false });
+      }
       // Получить telegram_id пассажира и детали поездки
       const booking = await knex('bookings')
         .join('users', 'bookings.user_id', 'users.id')

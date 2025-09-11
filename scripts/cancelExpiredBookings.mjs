@@ -15,6 +15,10 @@ async function run() {
   }
   const ids = expired.map(b=>b.id);
   await db.transaction(async trx => {
+    // Вернём места по каждой брони
+    for (const b of expired) {
+      await trx('trip_instances').where({ id: b.trip_instance_id }).increment('available_seats', b.seats);
+    }
     await trx('bookings').whereIn('id', ids).update({ status: 'cancelled' });
     const affected = await trx('bookings')
       .join('users','bookings.user_id','users.id')

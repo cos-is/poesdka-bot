@@ -32,3 +32,16 @@ export function verifyYooSignature(req) {
   const hmac = crypto.createHmac('sha256', YOOKASSA_WEBHOOK_SECRET).update(payload).digest('hex');
   return hmac === provided;
 }
+
+// Создание возврата комиссии (refund)
+export async function createRefund(yc, { providerPaymentId, amount, description, idempotenceKey }) {
+  if (!yc || typeof yc.createRefund !== 'function') {
+    throw new Error('Refund API not available');
+  }
+  const refund = await yc.createRefund({
+    payment_id: providerPaymentId,
+    amount: { value: Number(amount).toFixed(2), currency: 'RUB' },
+    description,
+  }, idempotenceKey);
+  return refund;
+}

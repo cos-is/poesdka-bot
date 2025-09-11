@@ -4,7 +4,7 @@ import { addNotifyJob } from '../../queue/notifyQueue.mjs'
 import { formatDate, formatTime } from '../../utils/formatDate.mjs'
 import { formatPhone } from '../../utils/formatPhone.mjs'
 import { showPassengerMenu } from './common.mjs'
-import { initYooCheckout, createCommissionPayment } from './payments.mjs'
+import { initYooCheckout, createCommissionPayment, createRefund } from './payments.mjs'
 
 export function passengerLogic(knex) {
   return async (ctx, next) => {
@@ -330,8 +330,47 @@ export function passengerLogic(knex) {
             tripInstanceId = bookingRow?.trip_instance_id;
           }
           // Отмена бронирования, восстановление мест
-          await knex('bookings').where({ id: booking.booking_id }).update({ status: 'cancelled' });
-          await knex('trip_instances').where({ id: tripInstanceId }).increment('available_seats', booking.seats);
+          await knex.transaction(async trx => {
+            await trx('bookings').where({ id: booking.booking_id }).update({ status: 'cancelled' });
+            await trx('trip_instances').where({ id: tripInstanceId }).increment('available_seats', booking.seats);
+          });
+          // Если была оплата, оформим возврат комиссии автоматически
+          const fullBooking = await knex('bookings').where({ id: booking.booking_id }).first();
+          if (fullBooking?.payment_id) {
+            const pay = await knex('payments').where({ id: fullBooking.payment_id }).first();
+            if (pay && pay.status === 'succeeded' && pay.provider_payment_id) {
+              const yc = initYooCheckout();
+              if (yc) {
+                try {
+                  const idemp = `refund-booking-${booking.booking_id}-${Date.now()}`;
+                  const refund = await createRefund(yc, {
+                    providerPaymentId: pay.provider_payment_id,
+                    amount: pay.amount,
+                    description: `Возврат комиссии за отмену брони #${booking.booking_id}`,
+                    idempotenceKey: idemp,
+                  });
+                  // Опционально сохраняем реестр возвратов (в таблице payments.raw уже есть история, можно не хранить отдельно)
+                  await knex('payments').where({ id: fullBooking.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
+                  // Запишем в refunds
+                  try {
+                    await knex('refunds').insert({
+                      payment_id: fullBooking.payment_id,
+                      booking_id: booking.booking_id,
+                      provider_refund_id: refund?.id || null,
+                      amount: pay.amount,
+                      currency: pay.currency || 'RUB',
+                      status: refund?.status || 'created',
+                      raw: JSON.stringify(refund || {})
+                    });
+                  } catch { /* ignore */ }
+                  // Уведомление пассажиру о возврате комиссии
+                  await ctx.reply(`Возврат комиссии оформлен (${pay.amount}₽). Средства вернутся на карту в течение 1–7 дней (в зависимости от банка).`);
+                } catch (e) {
+                  console.error('Ошибка возврата комиссии', e.message);
+                }
+              }
+            }
+          }
           // Уведомление водителю
           const driver = await knex('users')
             .join('trips', 'users.id', 'trips.driver_id')
@@ -616,21 +655,30 @@ export function passengerLogic(knex) {
           // Проверка на существующую активную или ожидающую оплату бронь
           const existingBooking = await knex('bookings')
             .where({ trip_instance_id: tripInstanceId, user_id: userId })
-            .whereIn('status', ['active','pending'])
+            .whereIn('status', ['active','pending','awaiting_confirmation'])
             .first();
           if (existingBooking) {
             await ctx.reply('У вас уже есть бронирование этой поездки (активное или в ожидании оплаты).');
             return;
           }
-          // Проверка мест (пока без уменьшения, делаем только при успехе оплаты)
-          const tripInstance = await knex('trip_instances').where({ id: tripInstanceId }).first();
-          if (!tripInstance || tripInstance.available_seats < seats) {
+          // Резервируем места и создаём pending booking атомарно
+          const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 минут на оплату
+          const bookingId = await knex.transaction(async trx => {
+            const affected = await trx('trip_instances')
+              .where({ id: tripInstanceId })
+              .andWhere('available_seats','>=', seats)
+              .decrement('available_seats', seats);
+            if (!affected) throw new Error('NO_SEATS');
+            const [id] = await trx('bookings').insert({ trip_instance_id: tripInstanceId, user_id: userId, seats, status: 'pending', expires_at: expiresAt });
+            return id;
+          }).catch(err => {
+            if (err && err.message === 'NO_SEATS') return null;
+            throw err;
+          });
+          if (!bookingId) {
             await ctx.reply('Недостаточно мест. Обновите список поездок.');
             return;
           }
-          // Создаём pending booking
-          const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 минут на оплату
-          const [bookingId] = await knex('bookings').insert({ trip_instance_id: tripInstanceId, user_id: userId, seats, status: 'pending', expires_at: expiresAt });
           // Фиксированная комиссия: 50₽ за место (можно задать COMMISSION_PER_SEAT)
           const COMMISSION_PER_SEAT = parseInt(process.env.COMMISSION_PER_SEAT || '50', 10);
           const commissionAmount = COMMISSION_PER_SEAT * seats;

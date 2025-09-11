@@ -66,6 +66,8 @@ export const up = async (knex) => {
 
   // 6. Unique booking per user per trip (note: blocks re-book after cancel)
   try { await knex.schema.table('bookings', t => t.unique(['trip_instance_id','user_id'],'uq_booking_trip_user')); } catch { /* ignore */ }
+
+  // refunds moved to a separate migration (20250912_add_refunds_table)
 };
 
 export const down = async (knex) => {
@@ -76,4 +78,5 @@ export const down = async (knex) => {
   await dropIdx('payments','idx_payments_provider_payment_id');
   await dropIdx('bookings','idx_bookings_payment_id');
   try { await knex.schema.table('bookings', t => t.dropUnique(['trip_instance_id','user_id'],'uq_booking_trip_user')); } catch { /* ignore */ }
+  // refunds table is managed by its own migration
 };
