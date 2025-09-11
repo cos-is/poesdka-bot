@@ -1,6 +1,7 @@
 // Очередь для операций над поездками (создание, обновление, отмена) через BullMQ
 import { Queue, Worker } from 'bullmq';
 import dotenv from 'dotenv';
+import { formatDate, formatTime } from '../utils/formatDate.mjs'
 dotenv.config();
 
 const connection = {
@@ -82,7 +83,7 @@ export function startTripWorker(knex) {
           if (b.passenger_telegram_id) {
             await bot.telegram.sendMessage(
               b.passenger_telegram_id,
-              `Ваша бронь на поездку ${b.departure_date} ${b.departure_time} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
+              `Ваша бронь на поездку ${formatDate(b.departure_date)} ${formatTime(b.departure_time)} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
             );
           }
         } catch (e) {
