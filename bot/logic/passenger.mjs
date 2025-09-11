@@ -455,8 +455,14 @@ export function passengerLogic(knex) {
       }
 
       if (ctx.session.state === 'search_date') {
-        // Поиск поездок по id городов
-        const trips = await knex('trip_instances')
+        // Поиск поездок по id городов, исключая уже прошедшие по времени выезда (если дата = сегодня)
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const nowTime = `${hh}:${mm}`; // формат HH:MM
+
+        const baseQuery = knex('trip_instances')
           .join('trips', 'trip_instances.trip_id', 'trips.id')
           .where({
             'trips.departure_city_id': ctx.session.from_city_id,
@@ -464,8 +470,19 @@ export function passengerLogic(knex) {
             'trip_instances.departure_date': ctx.session.date,
             'trip_instances.status': 'active'
           })
-          .andWhere('trip_instances.available_seats', '>', 0)
-          .select('trip_instances.id', 'trip_instances.departure_time', 'trip_instances.price', 'trip_instances.available_seats', 'trips.seats');
+          .andWhere('trip_instances.available_seats', '>', 0);
+
+        if (ctx.session.date === todayStr) {
+          baseQuery.andWhere('trip_instances.departure_time', '>=', nowTime);
+        }
+
+        const trips = await baseQuery.select(
+          'trip_instances.id',
+          'trip_instances.departure_time',
+          'trip_instances.price',
+          'trip_instances.available_seats',
+          'trips.seats'
+        );
         if (trips.length === 0) {
           await ctx.reply('Поездок не найдено. Попробуйте изменить параметры поиска.');
           ctx.session.state = null;
