@@ -103,14 +103,16 @@ export async function handleDriverTrips(ctx, next, knex) {
           }
         } catch (e) { /* ignore */ }
         await addNotifyJob('booking_confirmed', booking.passenger_telegram_id, notifyMsg);
-        await ctx.reply('Бронирование подтверждено.');
-        const driverMsg =
-          `Информация о пассажире:\n` +
-          `Имя: ${booking.passenger_name || '-'}\n` +
-          `Телефон: ${formatPhone(booking.passenger_phone) || '-'}\n` +
+        // Редактируем исходное сообщение с кнопками, чтобы исключить повторное действие
+        const editText =
+          `Бронь подтверждена\n\n` +
+          `Пассажир: ${booking.passenger_name || '-'} (${formatPhone(booking.passenger_phone) || '-'})\n` +
           `Маршрут: ${booking.departure_city} → ${booking.arrival_city}\n` +
-          `Дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}`;
-        await ctx.reply(driverMsg);
+          `Дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}\n` +
+          `Мест: ${bookingRow.seats}`;
+        try {
+          await ctx.editMessageText(editText, { reply_markup: { inline_keyboard: [] } });
+        } catch (e) { /* ignore */ }
       }
       await ctx.answerCbQuery('Бронирование подтверждено');
       return true;
@@ -179,7 +181,10 @@ export async function handleDriverTrips(ctx, next, knex) {
           `Ваша бронь отклонена водителем. Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${booking.departure_time}`
         );
       }
-      await ctx.reply('Бронирование отклонено.');
+      // Редактируем исходное сообщение с кнопками
+      try {
+        await ctx.editMessageText('Бронирование отклонено', { reply_markup: { inline_keyboard: [] } });
+      } catch (e) { /* ignore */ }
       await ctx.answerCbQuery('Бронирование отклонено');
       return true;
     }
@@ -1531,21 +1536,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       const bookingId = data.replace('driver_confirm_booking_', '');
       const bookingRow = await knex('bookings').where({ id: bookingId }).first();
       if (!bookingRow) { await ctx.answerCbQuery('Бронь не найдена'); return true; }
-      const ok = await knex.transaction(async trx => {
-        const affected = await trx('trip_instances')
-          .where({ id: bookingRow.trip_instance_id })
-          .andWhere('available_seats', '>=', bookingRow.seats)
-          .decrement('available_seats', bookingRow.seats);
-        if (!affected) return false;
-        await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
-        return true;
-      });
-      if (!ok) {
-        const p = await knex('users').where({ id: bookingRow.user_id }).first();
-        if (p) await addNotifyJob('booking_failed', p.telegram_id, 'К сожалению, мест уже недостаточно. Свяжитесь с поддержкой.');
-        await ctx.answerCbQuery('Недостаточно мест');
-        return true;
-      }
+      await trx('bookings').where({ id: bookingRow.id }).update({ status: 'active', confirmed: true });
       const booking = await knex('bookings')
         .join('users', 'bookings.user_id', 'users.id')
         .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
