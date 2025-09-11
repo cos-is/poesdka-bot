@@ -29,9 +29,15 @@ export function startTripWorker(knex) {
       const yc = initYooCheckout();
       const affectedBookings = await knex('bookings')
         .join('trip_instances','bookings.trip_instance_id','trip_instances.id')
+        .join('users','bookings.user_id','users.id')
         .where('trip_instances.id', data.instanceId)
         .whereIn('bookings.status', ['active','pending','awaiting_confirmation'])
-        .select('bookings.*','trip_instances.departure_date','trip_instances.departure_time');
+        .select(
+          'bookings.*',
+          'trip_instances.departure_date',
+          'trip_instances.departure_time',
+          'users.telegram_id as passenger_telegram_id'
+        );
       for (const b of affectedBookings) {
         // Вернуть места, если они были уже зарезервированы (мы резервируем при создании pending)
         try {
@@ -73,10 +79,12 @@ export function startTripWorker(knex) {
         }
         // Уведомление пассажиру
         try {
-          await bot.telegram.sendMessage(
-            b.user_id,
-            `Ваша бронь на поездку ${b.departure_date} ${b.departure_time} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
-          );
+          if (b.passenger_telegram_id) {
+            await bot.telegram.sendMessage(
+              b.passenger_telegram_id,
+              `Ваша бронь на поездку ${b.departure_date} ${b.departure_time} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
+            );
+          }
         } catch (e) {
           console.error('Notification error', e);
         }
@@ -91,15 +99,18 @@ export function startTripWorker(knex) {
       const bot = botModule.poezdkaBot || botModule.bot;
       const bookings = await knex('bookings')
         .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
+        .join('users', 'bookings.user_id', 'users.id')
         .where('trip_instances.trip_id', data.tripId)
         .andWhere('bookings.status', 'active')
-        .select('bookings.user_id');
+        .select('users.telegram_id as passenger_telegram_id');
       for (const b of bookings) {
         try {
-          await bot.telegram.sendMessage(
-            b.user_id,
-            `В поездке, которую вы забронировали, изменилось количество мест. Если это важно — проверьте детали поездки.`
-          );
+          if (b.passenger_telegram_id) {
+            await bot.telegram.sendMessage(
+              b.passenger_telegram_id,
+              `В поездке, которую вы забронировали, изменилось количество мест. Если это важно — проверьте детали поездки.`
+            );
+          }
         } catch (e) {
           console.log('Notification error', e);
         }
@@ -113,15 +124,18 @@ export function startTripWorker(knex) {
       const bot = botModule.poezdkaBot || botModule.bot;
       const bookings = await knex('bookings')
         .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
+        .join('users', 'bookings.user_id', 'users.id')
         .where('trip_instances.trip_id', data.tripId)
         .andWhere('bookings.status', 'active')
-        .select('bookings.user_id');
+        .select('users.telegram_id as passenger_telegram_id');
       for (const b of bookings) {
         try {
-          await bot.telegram.sendMessage(
-            b.user_id,
-            `В поездке, которую вы забронировали, изменилась цена за место. Если это важно — проверьте детали поездки.`
-          );
+          if (b.passenger_telegram_id) {
+            await bot.telegram.sendMessage(
+              b.passenger_telegram_id,
+              `В поездке, которую вы забронировали, изменилась цена за место. Если это важно — проверьте детали поездки.`
+            );
+          }
         } catch (e) { /* ignore */ }
       }
       return 'price_updated';
