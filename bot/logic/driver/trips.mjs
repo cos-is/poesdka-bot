@@ -74,7 +74,7 @@ export async function handleDriverTrips(ctx, next, knex) {
         const notifyMsg =
           `Ваша бронь подтверждена!\n` +
           `Поездка: ${booking.departure_city} → ${booking.arrival_city}\n` +
-          `Дата: ${formatDate(booking.departure_date)}, время: ${booking.departure_time}\n` +
+          `Дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}\n` +
           `Адрес отправления: ${booking.departure_address || '-'}\n` +
           `Адрес прибытия: ${booking.arrival_address || '-'}\n` +
           (booking.trip_comment ? `Комментарий: ${booking.trip_comment}\n` : '') +
@@ -166,7 +166,7 @@ export async function handleDriverTrips(ctx, next, knex) {
         await addNotifyJob(
           'booking_rejected',
           booking.passenger_telegram_id,
-          `Ваша бронь отклонена водителем. Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${booking.departure_time}`
+          `Ваша бронь отклонена водителем. Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}`
         );
       }
       // Редактируем исходное сообщение с кнопками
@@ -1538,7 +1538,7 @@ export async function handleDriverTrips(ctx, next, knex) {
         await addNotifyJob(
           'booking_confirmed',
           booking.passenger_telegram_id,
-          `Ваша бронь подтверждена! Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${booking.departure_time}`
+          `Ваша бронь подтверждена! Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}`
         );
       }
       await ctx.reply('Бронирование подтверждено.');
@@ -1603,7 +1603,7 @@ export async function handleDriverTrips(ctx, next, knex) {
         await addNotifyJob(
           'booking_rejected',
           booking.passenger_telegram_id,
-          `Ваша бронь отклонена водителем. Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${booking.departure_time}`
+          `Ваша бронь отклонена водителем. Поездка: ${booking.departure_city} → ${booking.arrival_city}, дата: ${formatDate(booking.departure_date)}, время: ${formatTime(booking.departure_time)}`
         );
       }
       await ctx.reply('Бронирование отклонено.');
