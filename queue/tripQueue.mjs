@@ -63,8 +63,12 @@ export function startTripWorker(knex) {
                   status: refund?.status || 'created',
                   raw: JSON.stringify(refund || {})
                 });
-              } catch {/* ignore */}
-            } catch (e) { /* ignore refund errors to proceed */ }
+              } catch (e) {
+                console.error('Refund insert error', e);
+              }
+            } catch (e) {
+              console.error('Refund error', e);
+            }
           }
         }
         // Уведомление пассажиру
@@ -73,7 +77,9 @@ export function startTripWorker(knex) {
             b.user_id,
             `Ваша бронь на поездку ${b.departure_date} ${b.departure_time} отменена водителем. Если комиссия была оплачена — возврат оформлен.`
           );
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+          console.error('Notification error', e);
+        }
       }
       return 'cancelled';
     }
@@ -94,7 +100,9 @@ export function startTripWorker(knex) {
             b.user_id,
             `В поездке, которую вы забронировали, изменилось количество мест. Если это важно — проверьте детали поездки.`
           );
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+          console.log('Notification error', e);
+        }
       }
       return 'seats_updated';
     }
