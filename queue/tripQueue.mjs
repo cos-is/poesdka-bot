@@ -16,9 +16,11 @@ export function startTripWorker(knex) {
   new Worker('trip', async job => {
     const { action, data } = job.data;
     if (action === 'cancel') {
-      // Отмена поездки и всех её инстансов
-      await knex('trips').where('id', data.tripId).update({ status: 'cancelled' });
-      await knex('trip_instances').where('trip_id', data.tripId).update({ status: 'cancelled' });
+      // Отмена только выбранного инстанса поездки (базовую запись trips не трогаем)
+      if (!data?.instanceId) {
+        return 'no_instance_specified';
+      }
+      await knex('trip_instances').where('id', data.instanceId).update({ status: 'cancelled' });
       // Автовозвраты для всех оплаченных броней, отмена броней и возврат мест
       const botModule = await import('../index.mjs');
       const bot = botModule.poezdkaBot || botModule.bot;
@@ -27,7 +29,7 @@ export function startTripWorker(knex) {
       const yc = initYooCheckout();
       const affectedBookings = await knex('bookings')
         .join('trip_instances','bookings.trip_instance_id','trip_instances.id')
-        .where('trip_instances.trip_id', data.tripId)
+        .where('trip_instances.id', data.instanceId)
         .whereIn('bookings.status', ['active','pending','awaiting_confirmation'])
         .select('bookings.*','trip_instances.departure_date','trip_instances.departure_time');
       for (const b of affectedBookings) {
