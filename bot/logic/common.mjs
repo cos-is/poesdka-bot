@@ -58,12 +58,6 @@ export function commonLogic(knex) {
       const dbUser = await knex('users').where({ telegram_id: ctx.from.id }).first();
       phone = dbUser?.phone || '';
     }
-    if (user) {
-      ctx.bot.setMyCommands([
-        { command: '/start', description: 'Начать' },
-        { command: '/support', description: 'Поддержка' }
-      ])
-    }
     await ctx.reply(`Ваш текущий номер телефона: ${phone ? formatPhone(phone) : 'не указан'}`);
     await ctx.reply('Вы можете ввести новый номер вручную или отправить контакт:', {
       reply_markup: {
