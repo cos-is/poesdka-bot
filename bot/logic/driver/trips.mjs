@@ -243,7 +243,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       // Переходим к созданию нового инстанса для этой поездки
       ctx.session.state = "create_trip_instance_for_existing";
       // console.log(trip)
-      const msg = await ctx.reply("Выберите дату поездки:", {
+      const msg = await ctx.editMessageText("Выберите дату поездки:", {
         reply_markup: {
           inline_keyboard: [
             [
@@ -292,7 +292,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       ctx.session.trip_date = date.toISOString().slice(0, 10);
       ctx.session.state = "enter_trip_time_existing";
       await ctx.answerCbQuery();
-      await ctx.reply("Дата выбрана: " + formatDate(ctx.session.trip_date));
+      await ctx.editMessageText("Дата выбрана: " + formatDate(ctx.session.trip_date));
       await ctx.reply("Введите время отправления (например, 08:00):");
       console.log('time state existing', ctx.session.state)
     }
@@ -558,38 +558,6 @@ export async function handleDriverTrips(ctx, next, knex) {
     await ctx.answerCbQuery("Некорректное действие.");
     return true;
   }
-
-  // --- Возврат к созданию поездки после добавления авто ---
-  // if (ctx.session.creating_trip_after_car && ctx.session.state === null) {
-  //   // Проверяем, появились ли авто
-  //   const cars = await knex("cars")
-  //     .where("user_id", ctx.session.user.id)
-  //     .orderBy("is_default", "desc")
-  //     .orderBy("id", "asc");
-  //   if (!cars.length) {
-  //     await ctx.reply("Автомобиль не найден. Пожалуйста, добавьте авто и попробуйте снова.");
-  //     return true;
-  //   }
-  //   ctx.session.cars = cars;
-  //   ctx.session.car_page = 0;
-  //   ctx.session.state = "choose_car_for_trip";
-  //   ctx.session.creating_trip_after_car = false;
-  //   const pageSize = 10;
-  //   const showCars = cars.slice(0, pageSize);
-  //   const buttons = showCars.map((c, i) => [
-  //     {
-  //       text: `${c.brand} ${c.model} (${c.license_plate})${c.is_default ? " ⭐️" : ""}`,
-  //       callback_data: `choose_trip_car_${i}`,
-  //     },
-  //   ]);
-  //   if (cars.length > pageSize) {
-  //     buttons.push([{ text: "Далее ▶️", callback_data: "trip_car_page_1" }]);
-  //   }
-  //   await ctx.reply("Выберите автомобиль для поездки:", {
-  //     reply_markup: { inline_keyboard: buttons },
-  //   });
-  //   return true;
-  // }
     // Получаем города из БД
     const cities = await knex("cities").where({ is_active: true }).orderBy("name", "asc");
     if (!cities.length) {
@@ -613,9 +581,15 @@ export async function handleDriverTrips(ctx, next, knex) {
         { text: "Далее ▶️", callback_data: "departure_city_page_1" },
       ]);
     }
-    await ctx.reply("Выберите город отправления:", {
-      reply_markup: { inline_keyboard: buttons },
-    });
+    if (callbackQuery?.data === 'create_new_trip') {
+      await ctx.editMessageText("Выберите город отправления:", {
+        reply_markup: { inline_keyboard: buttons },
+      });
+    } else {
+      await ctx.reply("Выберите город отправления:", {
+        reply_markup: { inline_keyboard: buttons },
+      });
+    }
     return true;
   }
 
@@ -673,7 +647,7 @@ export async function handleDriverTrips(ctx, next, knex) {
           { text: "Далее ▶️", callback_data: "arrival_city_page_1" },
         ]);
       }
-      await ctx.reply("Выберите город прибытия:", {
+      await ctx.editMessageText("Выберите город прибытия:", {
         reply_markup: { inline_keyboard: buttons },
       });
       return true;
@@ -722,7 +696,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       ctx.session.state = "enter_trip_date_choice";
       await ctx.reply(`Маршрут: ${ctx.session.departure_city.name} → ${city.name}`);
       // Кнопки быстрых дат и календарь
-      const msg = await ctx.reply("Выберите дату поездки:", {
+      const msg = await ctx.editMessageText("Выберите дату поездки:", {
         reply_markup: {
           inline_keyboard: [
             [
@@ -764,7 +738,7 @@ export async function handleDriverTrips(ctx, next, knex) {
       ctx.session.trip_date = date.toISOString().slice(0, 10);
       ctx.session.state = "enter_trip_time";
       await ctx.answerCbQuery();
-      await ctx.reply("Дата выбрана: " + formatDate(ctx.session.trip_date));
+      await ctx.editMessageText("Дата выбрана: " + formatDate(ctx.session.trip_date));
       await ctx.reply("Введите время отправления (например, 08:00):");
     }
     return true;

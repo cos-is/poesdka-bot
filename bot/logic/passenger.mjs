@@ -108,6 +108,7 @@ export function passengerLogic(knex) {
             return;
           }
           ctx.session.to_city_id = city.id;
+          ctx.reply('Маршрут: ' + (ctx.session.cities.find(c => c.id === ctx.session.from_city_id)?.name || '-') + ' → ' + city.name);
           ctx.session.state = 'search_date_choice';
           // Кнопки быстрых дат и календарь
           const replyCalendarMsg = await ctx.editMessageText('Выберите дату:', {
@@ -448,7 +449,7 @@ export function passengerLogic(knex) {
           ctx.session.date = date.toISOString().slice(0, 10);
           ctx.session.state = 'search_date';
           await ctx.answerCbQuery();
-          await ctx.reply('Дата выбрана: ' + formatDate(ctx.session.date));
+          await ctx.editMessageText('Дата выбрана: ' + formatDate(ctx.session.date));
           // Переход к поиску поездок
           // ...existing code...
         }
@@ -718,6 +719,7 @@ export function passengerLogic(knex) {
                 metadata: { booking_id: bookingId, user_id: userId, trip_instance_id: tripInstanceId, return_url: 'https://t.me/' + ctx.botInfo?.username },
                 idempotenceKey
               });
+              console.log('payment:', payment)
               paymentUrl = payment?.confirmation?.confirmation_url;
               // Сохраняем payment
               const [paymentId] = await knex('payments').insert({ provider: 'yookassa', provider_payment_id: payment.id, amount: commissionAmount, currency: 'RUB', status: payment.status, description: `Комиссия за бронирование #${bookingId}`, idempotence_key: idempotenceKey });
