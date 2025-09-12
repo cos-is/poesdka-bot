@@ -443,13 +443,11 @@ export function passengerLogic(knex) {
 
       // Обработка выбора даты через кнопки
       if (ctx.session.state === 'search_date_choice' && callbackQuery) {
-        let date;
-        if (callbackQuery.data === 'date_today') {
-          date = new Date();
-        } else if (callbackQuery.data === 'date_tomorrow') {
-          date = new Date(); date.setDate(date.getDate() + 1);
-        } else if (callbackQuery.data === 'date_aftertomorrow') {
-          date = new Date(); date.setDate(date.getDate() + 2);
+        let date = getDate();
+        if (callbackQuery.data === "date_tomorrow") {
+          date.setDate(date.getDate() + 1);
+        } else if (callbackQuery.data === "date_aftertomorrow") {
+          date.setDate(date.getDate() + 2);
         }
         if (date) {
           ctx.session.date = date.toISOString().slice(0, 10);

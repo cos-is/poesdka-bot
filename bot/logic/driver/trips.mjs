@@ -732,7 +732,6 @@ export async function handleDriverTrips(ctx, next, knex) {
   // --- Выбор даты через кнопки ---
   if (ctx.session.state === "enter_trip_date_choice" && callbackQuery) {
     let date = getDate();
-    console.log(date)
     if (callbackQuery.data === "date_tomorrow") {
       date.setDate(date.getDate() + 1);
     } else if (callbackQuery.data === "date_aftertomorrow") {
