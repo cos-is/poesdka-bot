@@ -1,7 +1,7 @@
 import { Markup } from 'telegraf'
 import { addBookingJob } from '../../queue/bookingQueue.mjs'
 import { addNotifyJob } from '../../queue/notifyQueue.mjs'
-import { formatDate, formatTime } from '../../utils/formatDate.mjs'
+import { formatDate, formatTime, getDate } from '../../utils/formatDate.mjs'
 import { formatPhone } from '../../utils/formatPhone.mjs'
 import { showPassengerMenu } from './common.mjs'
 import { initYooCheckout, createCommissionPayment, createRefund } from './payments.mjs'
