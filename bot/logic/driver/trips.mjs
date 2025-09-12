@@ -317,6 +317,34 @@ export async function handleDriverTrips(ctx, next, knex) {
       return true;
     }
     ctx.session.trip_time = timeText
+    // Новый шаг: ввод времени в пути для переиспользования
+    ctx.session.state = "enter_trip_duration_existing";
+    await ctx.reply('Введите время в пути (например, 2:30):', {
+      reply_markup: {
+        keyboard: [["Отмена"]],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
+    return true;
+  }
+  // --- Ввод времени в пути при переиспользовании ---
+  if (
+    ctx.session.state === "enter_trip_duration_existing" &&
+    message &&
+    message.text
+  ) {
+    if (message.text === "Отмена") {
+      ctx.session.state = null;
+      if (showDriverMenu) await showDriverMenu(ctx);
+      return true;
+    }
+    const durationText = message.text.trim();
+    if (!/^\d{1,2}:[0-5]\d$/.test(durationText)) {
+      await ctx.reply('Введите корректное время в пути (например, 2:30)');
+      return true;
+    }
+    ctx.session.trip_duration = durationText;
     ctx.session.state = "enter_trip_price_existing";
     await ctx.reply("Введите цену за место (₽):");
     return true;
@@ -380,7 +408,8 @@ export async function handleDriverTrips(ctx, next, knex) {
     }
     ctx.session.departure_address = message.text;
     ctx.session.state = "enter_arrival_address_reuse";
-    await ctx.reply('Адрес отправления сохранён. Введите адрес места прибытия (улица, дом, ориентир):', {
+    await ctx.reply('Адрес отправления сохранён')
+    await ctx.reply('Введите адрес места прибытия (улица, дом, ориентир):', {
       reply_markup: {
         keyboard: [["Отмена"]],
         resize_keyboard: true,
@@ -403,6 +432,7 @@ export async function handleDriverTrips(ctx, next, knex) {
     }
     ctx.session.arrival_address = message.text;
     ctx.session.state = "enter_trip_comment_reuse";
+    await ctx.reply('Адрес прибытия сохранён')
     await ctx.reply("Добавьте комментарий к поездке (например, информация о посылках, пожелания и т.д.) или отправьте '-' если не требуется:", {
       reply_markup: {
         keyboard: [["Отмена"]],
@@ -429,11 +459,13 @@ export async function handleDriverTrips(ctx, next, knex) {
     const trip = ctx.session.selected_trip;
     let method = ctx.session.payment_method;
     let msg = `Проверьте введённые данные:\n` +
-      `Маршрут: ${trip.departure_city} → ${trip.arrival_city}\n` +
+      `Город отправления: ${trip.departure_city || ''}\n` +
+      `Адрес отправления: ${ctx.session.departure_address || ''}\n` +
+      `Город прибытия: ${trip.arrival_city || ''}\n` +
+      `Адрес прибытия: ${ctx.session.arrival_address || ''}\n` +
       `Дата: ${ctx.session.trip_date || ''}\n` +
       `Время: ${ctx.session.trip_time || ''}\n` +
-      `Адрес отправления: ${ctx.session.departure_address || ''}\n` +
-      `Адрес прибытия: ${ctx.session.arrival_address || ''}\n` +
+      (ctx.session.trip_duration ? `Время в пути: ${ctx.session.trip_duration}\n` : '') +
       `Цена за место: ${ctx.session.trip_price || ''} рублей\n` +
       `Способ оплаты: ${method === 'transfer' ? 'Перевод' : method === 'cash' ? 'Наличные' : 'Перевод/наличные'}\n` +
       `Свободных мест: ${trip.seats || ''}` +
@@ -466,6 +498,7 @@ export async function handleDriverTrips(ctx, next, knex) {
           status: "active",
           departure_address: ctx.session.departure_address || null,
           arrival_address: ctx.session.arrival_address || null,
+          duration: ctx.session.trip_duration || null,
           comment: ctx.session.trip_comment || null
         });
         await ctx.editMessageText('Поездка создана!');
@@ -807,7 +840,8 @@ export async function handleDriverTrips(ctx, next, knex) {
       return true;
     }
     ctx.session.departure_address = message.text;
-    await ctx.reply('Адрес отправления сохранён. Введите адрес места прибытия (улица, дом, ориентир):', {
+    await ctx.reply('Адрес отправления сохранён')
+    await ctx.reply('Введите адрес места прибытия (улица, дом, ориентир):', {
       reply_markup: {
         keyboard: [["Отмена"]],
         resize_keyboard: true,
@@ -825,7 +859,8 @@ export async function handleDriverTrips(ctx, next, knex) {
       return true;
     }
     ctx.session.arrival_address = message.text;
-    await ctx.reply('Адрес прибытия сохранён. Сколько мест доступно?', {
+    await ctx.reply('Адрес прибытия сохранён')
+    await ctx.reply('Сколько мест доступно?', {
       reply_markup: {
         keyboard: [["Отмена"]],
         resize_keyboard: true,
@@ -1083,11 +1118,11 @@ export async function handleDriverTrips(ctx, next, knex) {
         const msg = `Проверьте введённые данные:\n` +
           `Город отправления: ${ctx.session.departure_city?.name || ''}\n` +
           `Адрес отправления: ${ctx.session.departure_address || ''}\n` +
+          `Город прибытия: ${ctx.session.arrival_city?.name || ''}\n` +
+          `Адрес прибытия: ${ctx.session.arrival_address || ''}\n` +
           `Дата отправления: ${ctx.session.trip_date || ''}\n` +
           `Время отправления: ${ctx.session.trip_time || ''}\n` +
           `Время в пути: ${ctx.session.trip_duration || ''}\n` +
-          `Город прибытия: ${ctx.session.arrival_city?.name || ''}\n` +
-          `Адрес прибытия: ${ctx.session.arrival_address || ''}\n` +
           `Авто: ${car?.brand || ''} ${car?.model || ''}\n` +
           `Госномер: ${car?.license_plate || ''}\n` +
           `Количество свободных мест: ${ctx.session.trip_seats || ''} шт.\n` +

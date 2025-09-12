@@ -18,6 +18,7 @@ import { afterAll } from './bot/logic/afterAll.mjs'
 import { initYooCheckout, verifyYooSignature } from './bot/logic/payments.mjs'
 import { formatPhone } from './utils/formatPhone.mjs'
 import { addNotifyJob } from './queue/notifyQueue.mjs'
+import { formatDate, formatTime } from './utils/formatDate.mjs'
 const corsConfig = {
   origin: '*'
 }
@@ -98,13 +99,13 @@ app.post('/yookassa/webhook', async (req, res) => {
           ).where('bookings.id', booking.id).first();
         if (info) {
           const passengerPhone = info.passenger_phone ? formatPhone(info.passenger_phone) : '-';
-          const driverMessage = `Новая оплаченная бронь #${info.booking_id}\n`+
+          const driverMessage = `Новая бронь #${info.booking_id}\n`+
             `Маршрут: ${info.departure_city} → ${info.arrival_city}\n`+
-            `Дата: ${info.departure_date}, время: ${info.departure_time}\n`+
+            `Дата: ${formatDate(info.departure_date)}, время: ${formatTime(info.departure_time)}\n`+
             `Мест: ${info.seats}\n`+
             `Пассажир: ${info.passenger_name || '-'} (${passengerPhone})`;
           await addNotifyJob('booking_new', info.driver_tg, driverMessage, booking.id);
-          await addNotifyJob('booking_paid', info.passenger_tg, `Оплата прошла! Заявка #${info.booking_id} отправлена водителю. Ожидайте подтверждения.`, booking.id);
+          await addNotifyJob('booking_paid', info.passenger_tg, `Оплата прошла! Заявка #${info.booking_id} отправлена водителю. Ожидайте подтверждения.\n ⚠️ Остерегайтесь мошенников!\nЕсли есть возможность — проводите все расчёты на месте при встрече.\nСервис не несёт ответственности за переводы и предоплаты.`, booking.id);
         }
       }
     } else if (obj.status === 'canceled') {

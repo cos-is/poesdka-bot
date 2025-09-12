@@ -573,6 +573,8 @@ export function passengerLogic(knex) {
       // Обработка кнопок после показа информации о поездке
       if (ctx.session.state === 'trip_summary' && callbackQuery) {
         if (callbackQuery.data === 'book_selected_trip') {
+          // Сбрасываем ранее выбранные места, чтобы избежать повторного использования старого значения
+          ctx.session.seats = null;
           ctx.session.state = 'choose_seats';
           await ctx.editMessageReplyMarkup(); // Убираем кнопки
           await ctx.reply('Сколько мест забронировать?');
@@ -602,12 +604,14 @@ export function passengerLogic(knex) {
         }
       }
       if ((ctx.session.state === 'choose_seats' && message && message.text) || ctx?.session.state === 'awaiting_phone' || ctx?.session.state === 'awaiting_phone_input' || ctx?.session.state === 'awaiting_phone_choice') {
-        if (!ctx?.session.seats) {
+        // Обновляем число мест только при вводе на шаге choose_seats,
+        // чтобы не использовать устаревшее значение из предыдущей попытки
+        if (ctx.session.state === 'choose_seats' && message && message.text) {
           ctx.session.seats = parseInt(message.text, 10);
         }
         const seats = ctx.session.seats;
         const available = ctx.session.selected_trip?.available_seats;
-        if (!seats || seats < 1 || (available && seats > available && seats !== available)) {
+        if (!seats || seats < 1 || (available && seats > available)) {
           await ctx.reply(`Введите корректное число мест (от 1 до ${available || 'доступно'}).`);
           return;
         }
@@ -661,6 +665,10 @@ export function passengerLogic(knex) {
           await knex('users').where({ telegram_id: ctx.from.id }).update({ phone });
           await ctx.reply('Телефон сохранён.', { reply_markup: { remove_keyboard: true } });
           ctx.session.state = null;
+        }
+        // Не продолжаем к созданию брони, пока не получен телефон
+        if (!ctx.session?.user?.phone) {
+          return;
         }
         // Добавить задачу в очередь бронирований
         try {
@@ -723,7 +731,10 @@ export function passengerLogic(knex) {
             await ctx.reply(
               `Бронирование #${bookingId} создано и ожидает оплаты комиссии.
 Места: ${seats}
-Комиссия: ${commissionAmount}₽ (по ${COMMISSION_PER_SEAT}₽ за место)`,
+Комиссия: ${commissionAmount}₽ (по ${COMMISSION_PER_SEAT}₽ за место),
+
+— на развитие сервиса и поддержку работы бота.
+Спасибо, что помогаете проекту расти 🙏`,
               {
                 reply_markup: {
                   inline_keyboard: [[{ text: 'Оплатить', url: paymentUrl }]]
@@ -741,6 +752,7 @@ export function passengerLogic(knex) {
         ctx.session.state = null;
         ctx.session.trips = null;
         ctx.session.selected_trip = null;
+        ctx.session.seats = null; // сбросим число мест после завершения потока
         return;
       }
       // Обработка нераспознанных команд
