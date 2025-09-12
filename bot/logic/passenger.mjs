@@ -349,6 +349,12 @@ export function passengerLogic(knex) {
                     amount: pay.amount,
                     description: `Возврат комиссии за отмену брони #${booking.booking_id}`,
                     idempotenceKey: idemp,
+                    receipt: {
+                      phone: (await knex('users').where({ id: fullBooking.user_id }).first())?.phone || ctx.session?.user?.phone,
+                      seats: booking.seats,
+                      perSeat: parseInt(process.env.COMMISSION_PER_SEAT || '50', 10),
+                      taxSystemCode: process.env.YOOKASSA_TAX_SYSTEM_CODE
+                    }
                   });
                   // Опционально сохраняем реестр возвратов (в таблице payments.raw уже есть история, можно не хранить отдельно)
                   await knex('payments').where({ id: fullBooking.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
@@ -717,7 +723,13 @@ export function passengerLogic(knex) {
                 amount: commissionAmount,
                 description: `Комиссия за бронирование #${bookingId}`,
                 metadata: { booking_id: bookingId, user_id: userId, trip_instance_id: tripInstanceId, return_url: 'https://t.me/' + ctx.botInfo?.username },
-                idempotenceKey
+                idempotenceKey,
+                receipt: {
+                  phone: ctx.session?.user?.phone,
+                  seats,
+                  perSeat: COMMISSION_PER_SEAT,
+                  taxSystemCode: process.env.YOOKASSA_TAX_SYSTEM_CODE
+                }
               });
               console.log('payment:', payment)
               paymentUrl = payment?.confirmation?.confirmation_url;
@@ -728,7 +740,24 @@ export function passengerLogic(knex) {
               console.error('Ошибка создания платежа', err);
             }
           }
-          if (paymentUrl) {
+          // Если не удалось инициировать оплату — вернём места и отменим бронь
+          if (!paymentUrl) {
+            try {
+              await knex.transaction(async trx => {
+                await trx('bookings').where({ id: bookingId }).update({ status: 'cancelled' });
+                await trx('trip_instances').where({ id: tripInstanceId }).increment('available_seats', seats);
+              });
+            } catch (e) {
+              console.error('Rollback booking after payment error failed', e);
+            }
+            await ctx.reply('Ошибка оплаты, попробуйте ещё раз позже.');
+            // Очистим состояние потока
+            ctx.session.state = null;
+            ctx.session.trips = null;
+            ctx.session.selected_trip = null;
+            ctx.session.seats = null;
+            return;
+          } else {
             const minutesLeft = 15; // фиксировано пока
             await ctx.reply(
               `Бронирование #${bookingId} создано и ожидает оплаты комиссии.
@@ -743,8 +772,6 @@ export function passengerLogic(knex) {
                 }
               }
             );
-          } else {
-            await ctx.reply('Бронирование создано. Оплата временно недоступна, свяжитесь с поддержкой.');
           }
           await showPassengerMenu(ctx);
         } catch (e) {

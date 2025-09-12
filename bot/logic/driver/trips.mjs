@@ -122,11 +122,18 @@ export async function handleDriverTrips(ctx, next, knex) {
             if (yc) {
               try {
                 const idemp = `refund-booking-${bookingId}-${Date.now()}`;
-                const refund = await createRefund(yc, {
+        const passengerUser = await knex('users').where({ id: b.user_id }).first();
+        const refund = await createRefund(yc, {
                   providerPaymentId: pay.provider_payment_id,
                   amount: pay.amount,
                   description: `Возврат комиссии: отклонена бронь #${bookingId}`,
                   idempotenceKey: idemp,
+                  receipt: {
+          phone: passengerUser?.phone,
+                    seats: b.seats,
+                    perSeat: parseInt(process.env.COMMISSION_PER_SEAT || '50', 10),
+                    taxSystemCode: process.env.YOOKASSA_TAX_SYSTEM_CODE
+                  }
                 });
                 await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
                 try {
@@ -141,9 +148,9 @@ export async function handleDriverTrips(ctx, next, knex) {
                   });
                 } catch {}
                 // Уведомление пассажиру о возврате комиссии
-                const passenger = await knex('users').where({ id: b.user_id }).first();
-                if (passenger?.telegram_id) {
-                  await addNotifyJob('booking_refund', passenger.telegram_id, `Возврат комиссии оформлен (${pay.amount}₽) по отменённой брони #${bookingId}. Средства вернутся в течение 1–7 дней.`);
+                const passenger2 = await knex('users').where({ id: b.user_id }).first();
+                if (passenger2?.telegram_id) {
+                  await addNotifyJob('booking_refund', passenger2.telegram_id, `Возврат комиссии оформлен (${pay.amount}₽) по отменённой брони #${bookingId}. Средства вернутся в течение 1–7 дней.`);
                 }
               } catch (e) { console.error('Ошибка возврата комиссии', e.message); }
             }
@@ -1564,11 +1571,18 @@ export async function handleDriverTrips(ctx, next, knex) {
             if (yc) {
               try {
                 const idemp = `refund-booking-${bookingId}-${Date.now()}`;
+                const passengerUser = await knex('users').where({ id: b.user_id }).first();
                 const refund = await createRefund(yc, {
                   providerPaymentId: pay.provider_payment_id,
                   amount: pay.amount,
                   description: `Возврат комиссии: отклонена бронь #${bookingId}`,
                   idempotenceKey: idemp,
+                  receipt: {
+                    phone: passengerUser?.phone,
+                    seats: b.seats,
+                    perSeat: parseInt(process.env.COMMISSION_PER_SEAT || '50', 10),
+                    taxSystemCode: process.env.YOOKASSA_TAX_SYSTEM_CODE
+                  }
                 });
                 await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
                 try {

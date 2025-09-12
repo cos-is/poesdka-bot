@@ -53,11 +53,19 @@ export function startTripWorker(knex) {
           if (pay && pay.status === 'succeeded' && pay.provider_payment_id) {
             try {
               const idemp = `refund-trip-cancel-${b.id}-${Date.now()}`;
+              // Получаем телефон пассажира для чека возврата
+              const passengerUser = await knex('users').where({ id: b.user_id }).first();
               const refund = await createRefund(yc, {
                 providerPaymentId: pay.provider_payment_id,
                 amount: pay.amount,
                 description: `Возврат комиссии: отмена поездки, бронь #${b.id}`,
                 idempotenceKey: idemp,
+                receipt: {
+                  phone: passengerUser?.phone,
+                  seats: b.seats,
+                  perSeat: parseInt(process.env.COMMISSION_PER_SEAT || '50', 10),
+                  taxSystemCode: process.env.YOOKASSA_TAX_SYSTEM_CODE
+                }
               });
               await knex('payments').where({ id: b.payment_id }).update({ raw: JSON.stringify({ ...(pay.raw || {}), refund }) });
               try {
