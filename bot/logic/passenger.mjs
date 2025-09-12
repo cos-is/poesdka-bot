@@ -462,10 +462,11 @@ export function passengerLogic(knex) {
       if (ctx.session.state === 'search_date') {
         // Поиск поездок по id городов, исключая уже прошедшие по времени выезда (если дата = сегодня)
         const now = getDate();
-        const todayStr = now.toISOString().slice(0, 10);
-        const hh = String(now.getHours()).padStart(2, '0');
-        const mm = String(now.getMinutes()).padStart(2, '0');
-        const nowTime = `${hh}:${mm}`; // формат HH:MM
+        const isoNow = now.toISOString();
+        const todayStr = isoNow.slice(0, 10);
+        const hh = isoNow.slice(11, 13);
+        const mm = isoNow.slice(14, 16);
+        const nowTime = `${hh}:${mm}:00`; // формат HH:MM:SS
 
         const baseQuery = knex('trip_instances')
           .join('trips', 'trip_instances.trip_id', 'trips.id')
@@ -481,13 +482,13 @@ export function passengerLogic(knex) {
           baseQuery.andWhere('trip_instances.departure_time', '>=', nowTime);
         }
 
-        const trips = await baseQuery.select(
+  const trips = await baseQuery.select(
           'trip_instances.id',
           'trip_instances.departure_time',
           'trip_instances.price',
           'trip_instances.available_seats',
           'trips.seats'
-        );
+  ).orderBy('trip_instances.departure_time', 'asc');
         if (trips.length === 0) {
           await ctx.reply('Поездок не найдено. Попробуйте изменить параметры поиска.');
           ctx.session.state = null;
