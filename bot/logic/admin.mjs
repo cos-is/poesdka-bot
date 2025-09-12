@@ -151,11 +151,107 @@ export const adminLogic = (knex) => {
         reply_markup: {
           keyboard: [
             ['Города', 'Маршруты'],
-            ['Точки маршрутов', 'Пользователи']
+            ['Точки маршрутов', 'Пользователи'],
+            ['Статистика']
           ],
           resize_keyboard: true
         }
       });
+      ctx.session.state = null;
+      return;
+    }
+
+    // --- СТАТИСТИКА ---
+    if (ctx.message && ctx.message.text === 'Статистика') {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const startOfThisYear = new Date(now.getFullYear(), 0, 1);
+      const startOfNextYear = new Date(now.getFullYear() + 1, 0, 1);
+
+      const toIso = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+      const toDate = (d) => d.toISOString().slice(0, 10);
+
+      const ranges = {
+        currentMonth: { fromTs: toIso(startOfMonth), toTs: toIso(startOfNextMonth), fromDate: toDate(startOfMonth), toDate: toDate(new Date(startOfNextMonth.getTime() - 86400000)) },
+        previousMonth: { fromTs: toIso(startOfPrevMonth), toTs: toIso(startOfMonth), fromDate: toDate(startOfPrevMonth), toDate: toDate(new Date(startOfMonth.getTime() - 86400000)) },
+        currentYear: { fromTs: toIso(startOfThisYear), toTs: toIso(startOfNextYear), fromDate: toDate(startOfThisYear), toDate: toDate(new Date(startOfNextYear.getTime() - 86400000)) },
+      };
+
+      async function computePeriodStats(range) {
+        const { fromTs, toTs, fromDate, toDate } = range;
+        // Users by role (registered in period)
+        const [{ cnt: driversCount }] = await knex('users')
+          .where('role', 'driver')
+          .andWhere('created_at', '>=', fromTs)
+          .andWhere('created_at', '<', toTs)
+          .count({ cnt: '*' });
+        const [{ cnt: passengersCount }] = await knex('users')
+          .where('role', 'passenger')
+          .andWhere('created_at', '>=', fromTs)
+          .andWhere('created_at', '<', toTs)
+          .count({ cnt: '*' });
+
+        // Trips completed in period (by departure_date)
+        const [{ cnt: tripsCompleted }] = await knex('trip_instances')
+          .where('status', 'completed')
+          .andWhere('departure_date', '>=', fromDate)
+          .andWhere('departure_date', '<=', toDate)
+          .count({ cnt: '*' });
+
+        // Transported passengers: confirmed bookings on completed trips in period
+        const [{ seats_sum }] = await knex('bookings')
+          .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
+          .where('trip_instances.status', 'completed')
+          .andWhere('trip_instances.departure_date', '>=', fromDate)
+          .andWhere('trip_instances.departure_date', '<=', toDate)
+          .andWhere('bookings.confirmed', true)
+          .whereIn('bookings.status', ['active', 'completed'])
+          .sum({ seats_sum: 'bookings.seats' });
+
+        // Commission: succeeded payments - refunds
+        const [{ amt: paymentsSum }] = await knex('payments')
+          .where('status', 'succeeded')
+          .andWhere('created_at', '>=', fromTs)
+          .andWhere('created_at', '<', toTs)
+          .sum({ amt: 'amount' });
+        let refundsSum = 0;
+        try {
+          const [{ ramt }] = await knex('refunds')
+            .where('created_at', '>=', fromTs)
+            .andWhere('created_at', '<', toTs)
+            .whereNot('status', 'canceled')
+            .sum({ ramt: 'amount' });
+          refundsSum = Number(ramt || 0);
+        } catch {}
+
+        const drivers = Number(driversCount || 0);
+        const passengers = Number(passengersCount || 0);
+        const trips = Number(tripsCompleted || 0);
+        const transported = Number(seats_sum || 0);
+        const commission = Number(paymentsSum || 0) - Number(refundsSum || 0);
+        return { drivers, passengers, trips, transported, commission };
+      }
+
+      const [cm, pm, cy] = await Promise.all([
+        computePeriodStats(ranges.currentMonth),
+        computePeriodStats(ranges.previousMonth),
+        computePeriodStats(ranges.currentYear)
+      ]);
+
+      const fmtMoney = (n) => (Number(n || 0)).toFixed(2) + '₽';
+      const msg = [
+        'Статистика:',
+        '',
+        `Текущий месяц\nВодителей: ${cm.drivers}\nПассажиров: ${cm.passengers}\nПоездок (завершено): ${cm.trips}\nПеревезено пассажиров: ${cm.transported}\nКомиссия: ${fmtMoney(cm.commission)}`,
+        '',
+        `Предыдущий месяц\nВодителей: ${pm.drivers}\nПассажиров: ${pm.passengers}\nПоездок (завершено): ${pm.trips}\nПеревезено пассажиров: ${pm.transported}\nКомиссия: ${fmtMoney(pm.commission)}`,
+        '',
+        `Текущий год\nВодителей: ${cy.drivers}\nПассажиров: ${cy.passengers}\nПоездок (завершено): ${cy.trips}\nПеревезено пассажиров: ${cy.transported}\nКомиссия: ${fmtMoney(cy.commission)}`
+      ].join('\n');
+
+      await ctx.reply(msg);
       ctx.session.state = null;
       return;
     }
