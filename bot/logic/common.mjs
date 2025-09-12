@@ -226,31 +226,43 @@ export function commonLogic(knex) {
         // Статистика водителя
         if (ctx.message && ctx.message.text === 'Статистика') {
           const driver = session.user;
-          // Все завершённые поездки
-          const completedTrips = await knex('trip_instances as inst')
-            .join('trips', 'inst.trip_id', 'trips.id')
-            .where('trips.driver_id', driver.id)
-            .andWhere('inst.status', 'completed')
-            .select('inst.id', 'inst.departure_date');
-          // Все перевезённые пассажиры (подтверждённые брони в завершённых поездках)
-          const passengerCountRow = await knex('bookings')
-            .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
-            .join('trips', 'trip_instances.trip_id', 'trips.id')
-            .where('trips.driver_id', driver.id)
-            .andWhere('trip_instances.status', 'completed')
-            .andWhere('bookings.confirmed', true)
-            .sum('bookings.seats as count')
-            .first();
-          // --- За текущий месяц ---
+          // Периоды
           const now = new Date();
           const year = now.getFullYear();
           const month = String(now.getMonth() + 1).padStart(2, '0');
           const monthStart = `${year}-${month}-01`;
           const nextMonth = new Date(year, now.getMonth() + 1, 1);
           const monthEnd = nextMonth.toISOString().slice(0, 10);
-          // Завершённые поездки за месяц
-          const completedTripsMonth = completedTrips.filter(t => t.departure_date >= monthStart && t.departure_date < monthEnd);
-          // Перевезённые пассажиры за месяц
+
+          // Всего завершённых поездок
+          const completedTripsTotalRow = await knex('trip_instances as inst')
+            .join('trips', 'inst.trip_id', 'trips.id')
+            .where('trips.driver_id', driver.id)
+            .andWhere('inst.status', 'completed')
+            .count({ count: 'inst.id' })
+            .first();
+
+          // Всего перевезённых пассажиров (подтверждённые брони в завершённых поездках)
+          const passengerCountRow = await knex('bookings')
+            .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
+            .join('trips', 'trip_instances.trip_id', 'trips.id')
+            .where('trips.driver_id', driver.id)
+            .andWhere('trip_instances.status', 'completed')
+            .andWhere('bookings.confirmed', true)
+            .sum({ count: 'bookings.seats' })
+            .first();
+
+          // Завершённые поездки за текущий месяц
+          const completedTripsMonthRow = await knex('trip_instances as inst')
+            .join('trips', 'inst.trip_id', 'trips.id')
+            .where('trips.driver_id', driver.id)
+            .andWhere('inst.status', 'completed')
+            .andWhere('inst.departure_date', '>=', monthStart)
+            .andWhere('inst.departure_date', '<', monthEnd)
+            .count({ count: 'inst.id' })
+            .first();
+
+          // Перевезённые пассажиры за текущий месяц
           const passengerCountMonthRow = await knex('bookings')
             .join('trip_instances', 'bookings.trip_instance_id', 'trip_instances.id')
             .join('trips', 'trip_instances.trip_id', 'trips.id')
@@ -259,12 +271,13 @@ export function commonLogic(knex) {
             .andWhere('bookings.confirmed', true)
             .andWhere('trip_instances.departure_date', '>=', monthStart)
             .andWhere('trip_instances.departure_date', '<', monthEnd)
-            .sum('bookings.seats as count')
+            .sum({ count: 'bookings.seats' })
             .first();
-          const completedCount = completedTrips.length;
-          const passengerCount = passengerCountRow?.count || 0;
-          const completedCountMonth = completedTripsMonth.length;
-          const passengerCountMonth = passengerCountMonthRow?.count || 0;
+
+          const completedCount = Number(completedTripsTotalRow?.count ?? 0);
+          const passengerCount = Number(passengerCountRow?.count ?? 0);
+          const completedCountMonth = Number(completedTripsMonthRow?.count ?? 0);
+          const passengerCountMonth = Number(passengerCountMonthRow?.count ?? 0);
           let msg = `Статистика водителя:\n` +
             `Завершённых поездок: ${completedCount}\n` +
             `Перевезено пассажиров: ${passengerCount}`;
