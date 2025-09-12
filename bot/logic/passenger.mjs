@@ -461,7 +461,7 @@ export function passengerLogic(knex) {
 
       if (ctx.session.state === 'search_date') {
         // Поиск поездок по id городов, исключая уже прошедшие по времени выезда (если дата = сегодня)
-        const now = new Date();
+        const now = getDate();
         const todayStr = now.toISOString().slice(0, 10);
         const hh = String(now.getHours()).padStart(2, '0');
         const mm = String(now.getMinutes()).padStart(2, '0');
