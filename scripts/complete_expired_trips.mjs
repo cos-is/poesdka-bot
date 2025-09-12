@@ -38,7 +38,7 @@ async function main() {
     // Формируем дату-время отправления
     const [h, m] = trip.departure_time.split(':').map(Number);
     const departureDate = getDateTimeString(trip.departure_date)
-    const depDate = new Date(departureDate + 'T' + pad(h) + ':' + pad(m) + ':00');
+    const depDate = new Date(departureDate + 'T' + pad(h) + ':' + pad(m) + ':00.000Z')
     const mins = parseDuration(trip.duration);
     const endDate = addMinutes(depDate, mins);
     if (now > endDate) {
