@@ -23,7 +23,9 @@ export async function showDriverMenu(ctx) {
     if (row?.value) {
       keyboard[2].push({ text: 'Бонусы' });
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    console.error('Error fetching bonus_banner_url setting:', e);
+  }
   keyboard.push([
     { text: 'Изменить номер телефона' }
   ]);
