@@ -16,20 +16,13 @@ export async function showDriverMenu(ctx) {
     ],
     [
       { text: 'Статистика' }
-    ]
+    ],
+    [
+      { text: 'Изменить номер телефона' }
+    ],
+    [{ text: 'Новости и обновления' }],
+    [{ text: 'Сменить роль' }]
   ];
-  try {
-    const row = await db('app_settings').where({ key: 'bonus_banner_url' }).first();
-    if (row?.value) {
-      keyboard[2].push({ text: 'Бонусы' });
-    }
-  } catch (e) {
-    console.error('Error fetching bonus_banner_url setting:', e);
-  }
-  keyboard.push([
-    { text: 'Изменить номер телефона' }
-  ]);
-  keyboard.push([{ text: 'Сменить роль' }]);
   await ctx.reply('Меню водителя:', {
     reply_markup: {
       keyboard,
@@ -53,6 +46,7 @@ export async function showPassengerMenu(ctx) {
         [
           { text: 'Изменить номер телефона' }
         ],
+        [{ text: 'Новости и обновления' }],
         [{ text: 'Сменить роль' }]
       ],
       resize_keyboard: true
@@ -213,6 +207,12 @@ export function commonLogic(knex) {
           await ctx.reply(`Если у вас возникли вопросы, проблемы или предложения, вы можете обратиться в нашу службу поддержки: @PoezdkaSupport`)
           return true
         }
+
+        if (ctx.message && ctx.message.text === 'Новости и обновления') {
+          await ctx.reply(`📢 Новости и обновления PoezdkaBot:\n @poezdkaBotNews`);
+          return true;
+        }
+
         // Выбор роли
         if (ctx.session?.state === 'choose_role' && ctx.message && (ctx.message.text === 'Водитель' || ctx.message.text === 'Пассажир')) {
           const role = ctx.message.text === 'Водитель' ? 'driver' : 'passenger';
