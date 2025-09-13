@@ -1,4 +1,7 @@
 // Логика админ-бота для управления данными приложения
+
+import { getSetting } from '../../utils/getSetting.mjs'
+
 // Возможности: CRUD города, маршруты, точки маршрутов, бан/анбан пользователей
 const pageSize = 10;
 export const adminLogic = (knex) => {
@@ -7,6 +10,15 @@ export const adminLogic = (knex) => {
       ctx.session = {};
     }
     try {
+    // helpers for app settings
+    async function setSetting(key, value) {
+      const existing = await knex('app_settings').where({ key }).first();
+      if (existing) {
+        await knex('app_settings').where({ key }).update({ value });
+      } else {
+        await knex('app_settings').insert({ key, value });
+      }
+    }
   // --- МАРШРУТЫ ---
     if (ctx.message && ctx.message.text === 'Маршруты') {
       const routes = await knex('routes').orderBy('name', 'asc');
@@ -152,11 +164,97 @@ export const adminLogic = (knex) => {
           keyboard: [
             ['Города', 'Маршруты'],
             ['Точки маршрутов', 'Пользователи'],
-            ['Статистика']
+            ['Статистика', 'Материалы']
           ],
           resize_keyboard: true
         }
       });
+      ctx.session.state = null;
+      return;
+    }
+
+    // --- МАТЕРИАЛЫ (баннер/видео) ---
+    if (ctx.message && ctx.message.text === 'Материалы') {
+      const bonusUrl = await getSetting('bonus_banner_url');
+      const videoUrl = await getSetting('training_video_url');
+      let info = 'Управление материалами:';
+      try {
+        await ctx.replyWithPhoto(bonusUrl, { caption: 'Баннер бонусов' })
+        await ctx.replyWithVideo(videoUrl, { caption: 'Видео обучения' })
+      } catch {}
+      await ctx.reply(info, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Загрузить баннер бонусов', callback_data: 'upload_bonus_banner' }],
+            [{ text: 'Загрузить видео обучения', callback_data: 'upload_training_video' }]
+          ]
+        }
+      });
+      ctx.session.state = 'materials_menu';
+      return;
+    }
+    console.log('ctx.session.state', ctx.session.state)
+    if (ctx.session.state === 'materials_menu' && ctx.callbackQuery) {
+      const data = ctx.callbackQuery.data;
+      if (data === 'upload_bonus_banner') {
+        ctx.session.state = 'await_bonus_banner_upload';
+        await ctx.reply('Отправьте изображение баннера бонусов (фото или картинку документом).');
+        return;
+      }
+      if (data === 'upload_training_video') {
+        ctx.session.state = 'await_training_video_upload';
+        await ctx.reply('Отправьте видео обучения (видеофайл).');
+        return;
+      }
+      await ctx.answerCbQuery('Некорректное действие.');
+      return;
+    }
+    // Получение баннера бонусов
+    if (ctx.session.state === 'await_bonus_banner_upload' && ctx.message) {
+      try {
+        // приоритизируем photo, затем document
+        let fileId = null;
+        if (ctx.message.photo && ctx.message.photo.length) {
+          console.log(ctx.message.photo)
+          const best = ctx.message.photo[ctx.message.photo.length - 1];
+          fileId = best.file_id;
+        } else if (ctx.message.document && /^image\//.test(ctx.message.document.mime_type || '')) {
+          fileId = ctx.message.document.file_id;
+        }
+        if (!fileId) {
+          await ctx.reply('Не найдено изображение. Пришлите фото или картинку как документ.');
+          return;
+        }
+        await setSetting('bonus_banner_url', fileId);
+        await ctx.reply('Баннер сохранён. Ссылка обновлена.');
+      } catch (e) {
+        console.error('Save bonus banner error', e);
+        await ctx.reply('Не удалось сохранить баннер. Попробуйте ещё раз.');
+        return;
+      }
+      ctx.session.state = null;
+      return;
+    }
+    // Получение видео обучения
+    if (ctx.session.state === 'await_training_video_upload' && ctx.message) {
+      try {
+        let fileId = null;
+        if (ctx.message.video) {
+          fileId = ctx.message.video.file_id;
+        } else if (ctx.message.document && /^video\//.test(ctx.message.document.mime_type || '')) {
+          fileId = ctx.message.document.file_id;
+        }
+        if (!fileId) {
+          await ctx.reply('Не найдено видео. Пришлите видеофайл.');
+          return;
+        }
+        await setSetting('training_video_url', fileId);
+        await ctx.reply('Видео обучения сохранено. Ссылка обновлена.');
+      } catch (e) {
+        console.error('Save training video error', e);
+        await ctx.reply('Не удалось сохранить видео. Попробуйте ещё раз.');
+        return;
+      }
       ctx.session.state = null;
       return;
     }

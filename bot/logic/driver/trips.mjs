@@ -343,7 +343,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+    if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     const durationText = message.text.trim();
@@ -410,7 +410,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.departure_address = message.text;
@@ -434,7 +434,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.arrival_address = message.text;
@@ -458,7 +458,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.trip_comment = message.text === '-' ? '' : message.text;
@@ -509,7 +509,7 @@ export async function handleDriverTrips(ctx, next, knex) {
           comment: ctx.session.trip_comment || null
         });
         await ctx.editMessageText('Поездка создана!');
-        await showDriverMenu(ctx)
+  await showDriverMenu(ctx)
       } catch (e) {
         await ctx.reply("Ошибка создания поездки: " + e.message);
       }
@@ -757,7 +757,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     const timeText = message.text.trim();
@@ -792,7 +792,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     const durationText = message.text.trim();
@@ -816,7 +816,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   if (ctx.session.state === "enter_departure_address" && message && message.text) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.departure_address = message.text;
@@ -835,7 +835,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   if (ctx.session.state === "enter_arrival_address" && message && message.text) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.arrival_address = message.text;
@@ -859,7 +859,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     const seats = parseInt(message.text, 10);
@@ -887,7 +887,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     const price = parseInt(message.text, 10);
@@ -914,7 +914,7 @@ export async function handleDriverTrips(ctx, next, knex) {
   ) {
     if (message.text === "Отмена") {
       ctx.session.state = null;
-      if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       return true;
     }
     ctx.session.trip_comment = message.text === '-' ? '' : message.text;
@@ -1154,7 +1154,7 @@ export async function handleDriverTrips(ctx, next, knex) {
         }
       } else if (callbackQuery.data === 'save_trip_cancel') {
         await ctx.editMessageText('Создание поездки отменено.');
-        if (showDriverMenu) await showDriverMenu(ctx);
+  if (showDriverMenu) await showDriverMenu(ctx);
       }
       ctx.session.state = null;
       ctx.session.selected_trip_car = null;

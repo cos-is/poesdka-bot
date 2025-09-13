@@ -1,26 +1,36 @@
 import { Markup } from 'telegraf'
 import { formatPhone } from '../../utils/formatPhone.mjs'
+import db from '../../db/db.mjs';
+import { getSetting } from '../../utils/getSetting.mjs'
 
 // Общая логика: приветствие, регистрация, выбор роли
 export async function showDriverMenu(ctx) {
+  // Строим клавиатуру динамически, добавляя "Бонусы" если баннер загружен
+  let keyboard = [
+    [
+      { text: 'Создать новую поездку' },
+      { text: 'Мои поездки' }
+    ],
+    [
+      { text: 'Мои автомобили' },
+    ],
+    [
+      { text: 'Статистика' }
+    ]
+  ];
+  try {
+    const row = await db('app_settings').where({ key: 'bonus_banner_url' }).first();
+    if (row?.value) {
+      keyboard[2].push({ text: 'Бонусы' });
+    }
+  } catch { /* ignore */ }
+  keyboard.push([
+    { text: 'Изменить номер телефона' }
+  ]);
+  keyboard.push([{ text: 'Сменить роль' }]);
   await ctx.reply('Меню водителя:', {
     reply_markup: {
-      keyboard: [
-        [
-          { text: 'Создать новую поездку' },
-          { text: 'Мои поездки' }
-        ],
-        [
-          { text: 'Мои автомобили' },
-        ],
-        [
-          { text: 'Статистика' }
-        ],
-        [
-          { text: 'Изменить номер телефона' }
-        ],
-        [{ text: 'Сменить роль' }]
-      ],
+      keyboard,
       resize_keyboard: true
     }
   });
@@ -87,7 +97,7 @@ export function commonLogic(knex) {
   const showUserMenu = async ctx => {
     const role = ctx.session?.user?.role;
     if (role === 'driver') {
-      await showDriverMenu(ctx);
+  await showDriverMenu(ctx, knex);
     } else if (role === 'passenger') {
       await showPassengerMenu(ctx);
     }
@@ -167,7 +177,7 @@ export function commonLogic(knex) {
           ctx.session.bookings = null;
           // Показываем меню по роли
           if (session.user?.role === 'driver') {
-            await showDriverMenu(ctx);
+            await showDriverMenu(ctx, knex);
           } else if (session?.user?.role === 'passenger') {
             await showPassengerMenu(ctx);
           } else {
@@ -190,7 +200,7 @@ export function commonLogic(knex) {
 <a href="https://poezdkabot.ru/offer.html">Оферта по оказанию услуг</a>`, { parse_mode: 'HTML' })
             await showRoleMenu(ctx);
           } else if (session.user?.role === 'driver') {
-            await showDriverMenu(ctx);
+            await showDriverMenu(ctx, knex);
           } else if (session.user?.role === 'passenger') {
             await showPassengerMenu(ctx);
           }
@@ -211,7 +221,13 @@ export function commonLogic(knex) {
           }
           ctx.session.state = null;
           if (role === 'driver') {
-            await showDriverMenu(ctx);
+            const videoUrl = await getSetting('training_video_url')
+            if (videoUrl) {
+              try {
+                await ctx.replyWithVideo(videoUrl, { caption: 'Видео обучения' })
+              } catch (e) { console.log('Error video reply', e) }
+            }
+            await showDriverMenu(ctx, knex);
           } else {
             await showPassengerMenu(ctx);
           }
@@ -222,6 +238,13 @@ export function commonLogic(knex) {
         if (ctx.message && ctx.message.text === 'Изменить номер телефона') {
           await handleChangePhone(ctx);
           return true;
+        }
+        // Бонусы (отправить баннер, если загружен)
+        if (ctx.message && ctx.message.text === 'Бонусы') {
+          const bonusUrl = await getSetting('bonus_banner_url');
+          if (bonusUrl) {
+            await ctx.replyWithPhoto(bonusUrl, { caption: 'Наши бонусы для водителей' });
+          }
         }
         // Статистика водителя
         if (ctx.message && ctx.message.text === 'Статистика') {
@@ -296,7 +319,7 @@ export function commonLogic(knex) {
         
         // Показывать меню по роли, если пользователь уже есть
         if (session.user && ctx?.session?.user?.role === 'driver' && ctx?.message?.text === 'Кабинет водителя') {
-          await showDriverMenu(ctx);
+          await showDriverMenu(ctx, knex);
           return true;
         }
         if (session.user && ctx?.session?.user?.role === 'passenger' && ctx?.message?.text === 'Кабинет пассажира') {

@@ -262,7 +262,7 @@ export async function handleDriverCars(ctx, next, knex) {
         ctx.session.creating_trip_after_car = false
       } else {
         ctx.session.state = null;
-        await showDriverMenu()
+        await showDriverMenu(ctx)
         return true
       }
       ctx.session.new_car = null;
@@ -292,7 +292,7 @@ export async function handleDriverCars(ctx, next, knex) {
         ctx.session.creating_trip_after_car = false
       } else {
         ctx.session.state = null;
-        await showDriverMenu()
+        await showDriverMenu(ctx)
         return true;
       }
       ctx.session.new_car = null;
